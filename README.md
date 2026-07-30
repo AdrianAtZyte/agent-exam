@@ -1,4 +1,4 @@
-# {{REPO_NAME}}
+# agent-exam
 
 > Created from **zyte-service-template** by the Zyte repo governance portal.
 
