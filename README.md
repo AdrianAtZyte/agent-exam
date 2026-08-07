@@ -1,5 +1,7 @@
 # agent-exam
 
+[![docs](https://readthedocs.org/projects/agent-exam/badge/?version=latest)](https://agent-exam.readthedocs.io)
+
 Eval framework for agent skills. Point it at a repo of skills and a suite of
 YAML tasks, and it runs them against a real agent CLI, grades the resulting
 transcript, and reports verdicts plus cost and token metrics.
@@ -46,7 +48,9 @@ agent-exam my-suite        # run the suite
 agent-exam show latest     # read the report
 ```
 
-`examples/config.yaml` documents every configuration key.
+`examples/config.yaml` documents every configuration key, and the
+[documentation](https://agent-exam.readthedocs.io) covers writing suites,
+grading with judges and reading the reports.
 
 The evals directory is found relative to the nearest `pyproject.toml` and
 defaults to `evals/`. Add a `[tool.agent-exam]` section only to point somewhere

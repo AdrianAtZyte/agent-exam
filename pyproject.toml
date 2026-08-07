@@ -41,6 +41,7 @@ dev = [
 ]
 
 [project.urls]
+Documentation = "https://agent-exam.readthedocs.io"
 Source = "https://github.com/zytedata/agent-exam"
 Changelog = "https://github.com/zytedata/agent-exam/blob/main/CHANGES.rst"
 
@@ -217,3 +218,6 @@ filename = "CHANGES.rst"
 search = "\\(unreleased\\)$"
 replace = "({now:%Y-%m-%d})"
 regex = true
+
+[[tool.bumpversion.files]]
+filename = "docs/conf.py"
