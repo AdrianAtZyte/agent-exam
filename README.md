@@ -1,5 +1,7 @@
 # agent-exam
 
+[![docs](https://readthedocs.org/projects/agent-exam/badge/?version=latest)](https://agent-exam.readthedocs.io)
+
 Eval framework for agent skills. Point it at a repo of skills and a suite of
 YAML tasks, and it runs them against a real agent CLI, grades the resulting
 transcript, and reports verdicts plus cost and token metrics.
@@ -7,6 +9,14 @@ transcript, and reports verdicts plus cost and token metrics.
 Supported harnesses: **Claude Code**, **Codex CLI**, **Copilot CLI** and
 **OpenCode**. Each runs as a subprocess against your existing subscription or
 login — no pay-per-token API key is required.
+
+## Intended use
+
+Interactive development of skills — edit a skill, run the relevant suite or a
+single task, read the report, iterate. Automating runs against
+subscription-backed CLIs may stretch a harness's terms, and LLM evals are slow
+and expensive enough that running every suite on every change buys little extra
+signal.
 
 ## Install
 
@@ -46,7 +56,9 @@ agent-exam my-suite        # run the suite
 agent-exam show latest     # read the report
 ```
 
-`examples/config.yaml` documents every configuration key.
+`examples/config.yaml` documents every configuration key, and the
+[documentation](https://agent-exam.readthedocs.io) covers writing suites,
+grading with judges and reading the reports.
 
 The evals directory is found relative to the nearest `pyproject.toml` and
 defaults to `evals/`. Add a `[tool.agent-exam]` section only to point somewhere
@@ -74,14 +86,6 @@ pre_run_hook = "evals.hooks:pre_run_hook"
   regression reports across runs (`runs`, `show`, `history`, `diff`).
 - **Rescoring without re-running.** `agent-exam rescore` re-grades archived
   attempts against current assertions.
-
-## Intended use
-
-Interactive development of skills — edit a skill, run the relevant suite or a
-single task, read the report, iterate. Automating runs against
-subscription-backed CLIs may stretch a harness's terms, and LLM evals are slow
-and expensive enough that running every suite on every change buys little extra
-signal.
 
 ## Contributing
 
