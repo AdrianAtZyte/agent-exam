@@ -10,6 +10,14 @@ Supported harnesses: **Claude Code**, **Codex CLI**, **Copilot CLI** and
 **OpenCode**. Each runs as a subprocess against your existing subscription or
 login — no pay-per-token API key is required.
 
+## Intended use
+
+Interactive development of skills — edit a skill, run the relevant suite or a
+single task, read the report, iterate. Automating runs against
+subscription-backed CLIs may stretch a harness's terms, and LLM evals are slow
+and expensive enough that running every suite on every change buys little extra
+signal.
+
 ## Install
 
 ```bash
@@ -78,14 +86,6 @@ pre_run_hook = "evals.hooks:pre_run_hook"
   regression reports across runs (`runs`, `show`, `history`, `diff`).
 - **Rescoring without re-running.** `agent-exam rescore` re-grades archived
   attempts against current assertions.
-
-## Intended use
-
-Interactive development of skills — edit a skill, run the relevant suite or a
-single task, read the report, iterate. Automating runs against
-subscription-backed CLIs may stretch a harness's terms, and LLM evals are slow
-and expensive enough that running every suite on every change buys little extra
-signal.
 
 ## Contributing
 

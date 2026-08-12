@@ -94,7 +94,7 @@ that running every suite on every change buys little extra signal.
     Testing whether the right skill fires for a prompt.
 
 :doc:`design/network`
-    Credentials, shared services and per-harness permission settings.
+    Environment, concurrency and per-harness permission settings.
 
 :doc:`design/judges`
     What ``judge:`` and ``judge_agent:`` see, and what good criteria look like.
