@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import threading
 import time
@@ -12,6 +11,7 @@ from ..._models import _StrictModel
 from ...errors import FrameworkError, ProviderTimeout
 from ...ratelimit import with_retries
 from ..base import Provider
+from ..child_env import build_child_env
 from ..process_utils import terminate_tree
 from .stream_parser import StreamState, drain_stderr, drain_stream
 from .transcripts import build_run_result
@@ -106,12 +106,7 @@ class CopilotCliProvider(Provider):
 
         cmd.extend(provider_options.get("extra_args") or [])
 
-        env = dict(os.environ)
-        for key, value in (provider_options.get("env_overrides") or {}).items():
-            if value is None:
-                env.pop(key, None)
-            else:
-                env[key] = value
+        env = build_child_env(provider_options.get("env_overrides"))
 
         cwd_abs = cwd.resolve()
 

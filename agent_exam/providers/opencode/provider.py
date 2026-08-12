@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import threading
 import time
@@ -15,6 +14,7 @@ from ...errors import FrameworkError, ProviderTimeout
 from ...ratelimit import with_retries
 from ...schemas import CheckResult, RunResult
 from ..base import Provider
+from ..child_env import apply_env_overrides, build_child_env
 from ..process_utils import terminate_tree
 from .stream_parser import StreamState, drain_stderr, drain_stream
 from .transcripts import build_run_result
@@ -128,7 +128,7 @@ class OpenCodeProvider(Provider):
         cmd.extend(["--dir", str(cwd.resolve())])
         cmd.append(prompt)
 
-        env = dict(os.environ)
+        env = build_child_env()
         permission_config = build_permission_config(
             permission=provider_options.get("permission"),
             allowed_tools=provider_options.get("allowed_tools"),
@@ -136,11 +136,8 @@ class OpenCodeProvider(Provider):
         if permission_config:
             config = {"permission": permission_config}
             env["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
-        for key, value in (provider_options.get("env_overrides") or {}).items():
-            if value is None:
-                env.pop(key, None)
-            else:
-                env[key] = value
+        # Overrides last, so a task can still replace anything set above.
+        apply_env_overrides(env, provider_options.get("env_overrides"))
 
         started = time.time()
         process = subprocess.Popen(

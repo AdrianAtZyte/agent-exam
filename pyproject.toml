@@ -198,6 +198,9 @@ ignore = [
 # Spawning an agent CLI resolved from PATH is what a provider does; the
 # command is assembled from config, never from agent output.
 "agent_exam/providers/*" = ["S603", "S607"]
+# Fixture hygiene asks the `git` on PATH what it ignores; the arguments are
+# suite fixture names read from the eval config.
+"agent_exam/validation.py" = ["S603", "S607"]
 
 [tool.ruff.lint.flake8-type-checking]
 # Pydantic and dataclasses resolve annotations at run time, so their fields

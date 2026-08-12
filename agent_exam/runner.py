@@ -90,7 +90,7 @@ def _format_run_json(
     }
 
 
-_HEARTBEAT_INTERVAL = 3.0
+_HEARTBEAT_INTERVAL = 15.0
 
 
 def _heartbeat_interval() -> float | None:
@@ -439,6 +439,7 @@ def run(cfg: Config, req: RunRequest) -> int:
     # eval-identifying string here (e.g. `agent-exam-run-`) would leak
     # into Claude's system prompt via the cwd path.
     run_tmp_root = Path(tempfile.mkdtemp())
+    session_checked = False
     heartbeat.start()
     try:
         try:
@@ -452,6 +453,16 @@ def run(cfg: Config, req: RunRequest) -> int:
                 on_attempt_start=_on_attempt_start,
                 skills_to_exclude=skills_to_exclude,
             ):
+                if not session_checked and outcome.run_result is not None:
+                    # Provider-specific checks on what the first finished
+                    # attempt reveals about the skills under test, so a run
+                    # that can only score misses says so while there is still
+                    # time to abandon it. Generic runner stays
+                    # provider-agnostic and just prints what comes back.
+                    session_checked = True
+                    for warning in provider.session_checks(outcome.run_result, cfg):
+                        if warning.status != "OK":
+                            _emit_warning(warning)
                 key = (outcome.suite, outcome.task_name, outcome.attempt_n)
                 heartbeat.attempt_scoring(key)
                 # Scoring can be slow when judge assertions dispatch LLM

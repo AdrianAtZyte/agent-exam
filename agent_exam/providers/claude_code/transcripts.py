@@ -528,3 +528,22 @@ def _agent_id_from_path(path: str) -> str:
     if name.startswith("agent-") and name.endswith(".jsonl"):
         return name[len("agent-") : -len(".jsonl")]
     return ""
+
+
+def skill_listing(transcript_path: Path) -> str | None:
+    """Return a session's ``skill_listing`` attachment content, or None if the
+    transcript can't be read. Empty string when it holds no listing."""
+    try:
+        for line in transcript_path.open():
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("type") != "attachment":
+                continue
+            att = entry.get("attachment") or {}
+            if isinstance(att, dict) and att.get("type") == "skill_listing":
+                return att.get("content") or ""
+    except OSError:
+        return None
+    return ""

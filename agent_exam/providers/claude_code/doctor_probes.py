@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ...schemas import CheckResult
 from .blocked_plugins import blocked_skills_in_listing
+from .transcripts import skill_listing
 
 
 def hermetic_check(transcript_path: Path | None) -> CheckResult:
@@ -103,20 +104,8 @@ def blocked_plugins_in_probe(
             status="WARN",
             hint="transcript path missing — skipped",
         )
-    listing = ""
-    try:
-        for line in transcript_path.open():
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if entry.get("type") != "attachment":
-                continue
-            att = entry.get("attachment") or {}
-            if isinstance(att, dict) and att.get("type") == "skill_listing":
-                listing = att.get("content") or ""
-                break
-    except OSError:
+    listing = skill_listing(transcript_path)
+    if listing is None:
         return CheckResult(
             name="blocked plugins in probe",
             status="WARN",

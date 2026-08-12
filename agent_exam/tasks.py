@@ -69,6 +69,12 @@ class Assertion:
     providers: list[str] | None = None
 
 
+_FIXTURE_EMPTY_DIR_MARKERS = (".gitkeep",)
+"""File names that exist only so git can store an otherwise empty fixture
+directory. Stripped when a fixture is staged: the directory is what the fixture
+author meant the agent to see, the marker is bookkeeping."""
+
+
 @dataclass
 class Task:
     suite: str

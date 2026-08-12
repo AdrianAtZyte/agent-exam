@@ -24,7 +24,7 @@ from .errors import ProviderTimeout, UsageError
 from .providers import get_provider
 from .schemas import RunResult
 from .serde import to_json_dict, write_json
-from .tasks import Task
+from .tasks import _FIXTURE_EMPTY_DIR_MARKERS, Task
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -52,8 +52,35 @@ class AttemptOutcome:
     error_verdict: str | None  # "timeout" | None
 
 
+def _settled_nontrigger(task: Task, run_result: RunResult | None) -> bool:
+    """Whether a timed-out positive trigger already has its answer.
+
+    A positive trigger ends either on the first skill fire or on the wall
+    clock, so "no skill fired" can only surface as a timeout. Once the agent
+    has run a real tool without reaching for a skill it has routed elsewhere,
+    and the partial trajectory is enough to score `first_skill` — grading it a
+    fail beats discarding the evidence as a framework error. The tool-call
+    floor keeps a genuine cold-start timeout, where the agent never got to act,
+    out of the pass rate.
+    """
+    if not task.should_trigger or run_result is None:
+        return False
+    return run_result.metrics.n_tool_calls > 0 and not any(
+        turn.skill_invocations for turn in run_result.trajectory
+    )
+
+
+_FIXTURE_COPY_EXCLUDES = shutil.ignore_patterns(*_FIXTURE_EMPTY_DIR_MARKERS)
+
+
 def _copy_fixture(src: Path, dst: Path) -> None:
-    shutil.copytree(src, dst, symlinks=False, dirs_exist_ok=True)
+    shutil.copytree(
+        src,
+        dst,
+        symlinks=False,
+        dirs_exist_ok=True,
+        ignore=_FIXTURE_COPY_EXCLUDES,
+    )
 
 
 def _stage_attempt_cwd(task: Task, evals_dir: Path, attempt_cwd: Path) -> None:
@@ -215,6 +242,8 @@ def _execute_attempt(
         # agent was doing when the timeout fired. Verdict stays
         # "timeout" — we just don't throw away the evidence.
         run_result = exc.partial_run_result
+        if _settled_nontrigger(task, run_result):
+            error_verdict = None
 
     attempt_finished = attempt_finished_writer()
 
