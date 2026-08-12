@@ -150,6 +150,16 @@ def test_provider_emits_allowed_tools_flag():
     assert cmd[idx + 2 :] == ["--add-dir", "/extra"]
 
 
+def test_setting_sources_exclude_user_level():
+    """User-level settings pull the caller's global skills, plugins and plugin
+    hooks into every trial; the project/local pair keeps only what the staged
+    run directory carries.
+    """
+    cmd = _capture_cmd({})
+    idx = cmd.index("--setting-sources")
+    assert cmd[idx + 1] == "project,local"
+
+
 def _capture_cmd(provider_options):
     """Run _invoke_once with the given options, capture argv via Popen
     short-circuit, return the captured cmd list.

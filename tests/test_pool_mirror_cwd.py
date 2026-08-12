@@ -38,3 +38,24 @@ def test_mirror_cwd_ignores_nested_dirs_named_like_discovery_dirs(tmp_path):
     assert (
         dst / "some_project" / ".claude" / "skills" / "marker.txt"
     ).read_text() == "keep me"
+
+
+def test_mirror_cwd_archives_agent_created_build_artifacts(tmp_path):
+    """Whatever the agent created stays in the archive — a `.venv` from its
+    own `uv run` records which packages it actually installed, and that's
+    evidence when reconstructing what went wrong. Only `_copy_fixture`
+    strips these, on the way in."""
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+
+    (src / "proj" / ".venv" / "lib").mkdir(parents=True)
+    (src / "proj" / ".venv" / "lib" / "installed.so").write_bytes(b"\x00")
+    (src / "proj" / "__pycache__").mkdir()
+    (src / "proj" / "__pycache__" / "m.cpython-314.pyc").write_bytes(b"\x00")
+    (src / "proj" / "items.jsonl").write_text('{"name": "x"}\n')
+
+    _mirror_cwd(src, dst)
+
+    assert (dst / "proj" / ".venv" / "lib" / "installed.so").exists()
+    assert (dst / "proj" / "__pycache__" / "m.cpython-314.pyc").exists()
+    assert (dst / "proj" / "items.jsonl").read_text() == '{"name": "x"}\n'

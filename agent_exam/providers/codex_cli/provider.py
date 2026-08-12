@@ -19,6 +19,7 @@ from ...errors import FrameworkError, ProviderTimeout, UsageError
 from ...ratelimit import with_retries
 from ...schemas import CheckResult, RunResult
 from ..base import Provider
+from ..child_env import build_child_env
 from ..process_utils import terminate_tree
 from .hermetic_skills import stage_skills_into
 from .paths import codex_home
@@ -131,12 +132,7 @@ class CodexCliProvider(Provider):
     ) -> RunResult:
         provider_options = self._prepare_prefix_rules(cwd, provider_options)
         cmd = self._build_cmd(prompt, model, cwd, provider_options)
-        env = dict(os.environ)
-        for key, value in (provider_options.get("env_overrides") or {}).items():
-            if value is None:
-                env.pop(key, None)
-            else:
-                env[key] = value
+        env = build_child_env(provider_options.get("env_overrides"))
 
         cwd_abs = cwd.resolve()
         raw_dir = cwd_abs.parent / ".raw_streams" / cwd_abs.name
