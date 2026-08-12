@@ -13,10 +13,16 @@ DEFAULT_MAX_CHARS = 50_000
 # descriptions + examples), tool results carry command output / file
 # contents / API responses. Thinking and tool inputs are usually short
 # and structural — tighter limits don't lose signal.
+#
+# Tool results are the widest ones: a bounded test crawl or a fetched
+# Markdown docs page runs 10-25k chars, and the values a criterion asks
+# about (the logged item dicts, a figure quoted from the docs) sit in the
+# middle, where head+tail truncation drops them. Whole trajectories run
+# well under DEFAULT_MAX_CHARS, so there is room to keep more.
 TEXT_BLOCK_MAX = 5_000
 THINKING_BLOCK_MAX = 200
 TOOL_INPUT_MAX = 600
-TOOL_RESULT_MAX = 1_000
+TOOL_RESULT_MAX = 4_000
 
 
 def format_trajectory(

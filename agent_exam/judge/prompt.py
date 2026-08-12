@@ -42,6 +42,16 @@ def build_prompt(
         parts.extend(
             [
                 "",
+                (
+                    "The trajectory below is abridged: long tool results and"
+                    " text blocks are shortened, marked with `...[N chars"
+                    " removed]...` or a trailing `...`. What an elision hides"
+                    " was present in the real trajectory, so it is not evidence"
+                    " of absence. Judge the criterion as written, and do not"
+                    " answer NO or UNCLEAR merely because a value the agent"
+                    " reported would have appeared inside an elision."
+                ),
+                "",
                 "AGENT'S TRAJECTORY:",
                 formatted_trajectory or "(empty trajectory)",
             ]
