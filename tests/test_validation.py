@@ -7,6 +7,7 @@ from textwrap import dedent
 from typing import TYPE_CHECKING
 
 import pytest
+from conftest import git_init
 
 from agent_exam.config import load_config
 from agent_exam.errors import UsageError
@@ -310,20 +311,313 @@ def test_validate_catches_missing_fixture(tmp_path):
     assert "does-not-exist" in fixture_check[0].hint
 
 
-def test_validate_passes_with_existing_fixture(tmp_path):
-    root = _project(tmp_path)
-    (root / "evals" / "fixtures" / "myfix").mkdir()
+def _fixture_task(root: Path, fixture: str = "myfix") -> None:
     _task(
         root,
         "fix.yaml",
-        """
+        f"""
         kind: execute
         prompt: x
         setup:
-          fixture: myfix
+          fixture: {fixture}
         assertions: []
         """,
     )
+
+
+def _git_repo(root: Path, gitignore: str) -> None:
+    """A repo with the fixture tree already committed — the state a real
+    checkout is in, and what `git ls-files --others` semantics assume."""
+    git_init(root, gitignore, commit=True)
+
+
+def _dummy_provider_config(root: Path) -> None:
+    (root / "evals" / "config.yaml").write_text(
+        "default_harness: dummy\nskills_dirs: []\n"
+        "providers:\n  dummy:\n    judge_model: haiku\n"
+    )
+
+
+def _fixture_project(root: Path, fixture: str = "myfix") -> Path:
+    proj = root / "evals" / "fixtures" / fixture / "proj"
+    proj.mkdir(parents=True)
+    (proj / "spider.py").write_text("# spider")
+    return proj
+
+
+def _ignored_check(results) -> object | None:
+    hits = [r for r in results if "have git-ignored files" in r.name]
+    return hits[0] if hits else None
+
+
+def _listed(check) -> list[str]:
+    """The paths a check lists, one per line after its first line."""
+    return [line.strip() for line in check.hint.splitlines()[1:]]
+
+
+def _rel(root: Path, path: Path) -> str:
+    return str(path.relative_to(root))
+
+
+def test_validate_fails_on_gitignored_file_in_fixture(tmp_path):
+    """A fixture whose content only exists on one machine is not the same
+    eval anywhere else, so an ignored path is a FAIL — the runner refuses
+    to spend tokens on it. The listing is one path per line, collapsed to
+    the `.venv` rather than each file inside it."""
+    root = _project(tmp_path)
+    proj = _fixture_project(root)
+    _fixture_task(root)
+    _git_repo(root, ".venv/\n")
+
+    (proj / ".venv" / "bin").mkdir(parents=True)
+    (proj / ".venv" / "bin" / "python").write_text("#!/bin/sh\n")
+    (proj / ".venv" / "pyvenv.cfg").write_text("home = /usr\n")
+
+    check = _ignored_check(validate_suite(load_config(root), "skill-a"))
+
+    assert check is not None
+    assert check.status == "FAIL"
+    assert _listed(check) == [_rel(root, proj / ".venv")]
+
+
+def test_validate_finds_ignored_content_under_a_new_subdirectory(tmp_path):
+    """Regression: `git ls-files --ignored --directory` collapses a
+    wholly-untracked directory, and because the collapsed directory itself
+    isn't ignored it then vanishes from the listing — a `.venv` under a
+    brand-new subdir would go unreported."""
+    root = _project(tmp_path)
+    _fixture_project(root)
+    _fixture_task(root)
+    _git_repo(root, ".venv/\n")
+
+    newsub = root / "evals" / "fixtures" / "myfix" / "newsub"
+    (newsub / ".venv").mkdir(parents=True)
+    (newsub / ".venv" / "pyvenv.cfg").write_text("home = /usr\n")
+    (newsub / "page.py").write_text("# uncommitted but not ignored")
+
+    check = _ignored_check(validate_suite(load_config(root), "skill-a"))
+
+    assert check is not None
+    assert check.status == "FAIL"
+    assert _listed(check) == [_rel(root, newsub / ".venv")]
+
+
+def test_validate_does_not_collapse_past_wanted_content(tmp_path):
+    """The listing must be safe to hand to `rm -rf`. `proj/` holds a
+    committed file and an uncommitted one, so collapsing the ignored
+    `*.pyc` files up to `proj/` would delete both — list the files."""
+    root = _project(tmp_path)
+    proj = _fixture_project(root)
+    _fixture_task(root)
+    _git_repo(root, "*.pyc\n")
+
+    (proj / "a.pyc").write_bytes(b"\x00")
+    (proj / "b.pyc").write_bytes(b"\x00")
+    (proj / "in_progress.py").write_text("# uncommitted, wanted")
+
+    check = _ignored_check(validate_suite(load_config(root), "skill-a"))
+
+    assert check is not None
+    assert check.status == "FAIL"
+    assert _listed(check) == [
+        _rel(root, proj / "a.pyc"),
+        _rel(root, proj / "b.pyc"),
+    ]
+
+
+def test_validate_collapses_each_offender_independently(tmp_path):
+    """Several ignored trees in one fixture each collapse to their own
+    root — one line per thing to delete, at whatever depth it sits."""
+    root = _project(tmp_path)
+    proj = _fixture_project(root)
+    _fixture_task(root)
+    _git_repo(root, ".venv/\n__pycache__/\n")
+
+    (proj / ".venv" / "lib").mkdir(parents=True)
+    (proj / ".venv" / "lib" / "x.so").write_bytes(b"\x00")
+    (proj / "pages" / "__pycache__").mkdir(parents=True)
+    (proj / "pages" / "__pycache__" / "p.pyc").write_bytes(b"\x00")
+    (proj / "pages" / "product.py").write_text("# page object")
+
+    check = _ignored_check(validate_suite(load_config(root), "skill-a"))
+
+    assert check is not None
+    assert check.status == "FAIL"
+    assert _listed(check) == [
+        _rel(root, proj / ".venv"),
+        _rel(root, proj / "pages" / "__pycache__"),
+    ]
+
+
+def _empty_dir_check(results) -> object | None:
+    hits = [r for r in results if "empty directories" in r.name]
+    return hits[0] if hits else None
+
+
+def test_validate_fails_on_empty_directory_in_fixture(tmp_path):
+    """An empty directory can't be committed, so it won't exist on a fresh
+    checkout — but it *is* staged into the attempt cwd, where the agent
+    sees it. Reported separately from ignored files: the fix differs."""
+    root = _project(tmp_path)
+    proj = _fixture_project(root)
+    _fixture_task(root)
+    _git_repo(root, ".venv/\n")
+
+    (proj / "output").mkdir()
+
+    check = _empty_dir_check(validate_suite(load_config(root), "skill-a"))
+
+    assert check is not None
+    assert check.status == "FAIL"
+    assert _listed(check) == [_rel(root, proj / "output")]
+    assert ".gitkeep" in check.hint
+
+
+def test_validate_reports_empty_directory_chain_once(tmp_path):
+    """`out/logs/` with neither holding a file is one problem — one
+    `.gitkeep` or one delete fixes it, so report the shallowest."""
+    root = _project(tmp_path)
+    proj = _fixture_project(root)
+    _fixture_task(root)
+    _git_repo(root, ".venv/\n")
+
+    (proj / "out" / "logs").mkdir(parents=True)
+
+    check = _empty_dir_check(validate_suite(load_config(root), "skill-a"))
+
+    assert check is not None
+    assert _listed(check) == [_rel(root, proj / "out")]
+
+
+def test_validate_reports_empty_ignored_directory_as_empty(tmp_path):
+    """An ignored directory holding no files has nothing for the
+    ignored-files check to list, so it lands in the empty-directory one.
+    Adding the `.gitkeep` then trips the ignored-files check, which is the
+    nudge to narrow the ignore rule."""
+    root = _project(tmp_path)
+    proj = _fixture_project(root)
+    _fixture_task(root)
+    _git_repo(root, ".venv/\n")
+
+    (proj / ".venv" / "bin").mkdir(parents=True)
+
+    results = validate_suite(load_config(root), "skill-a")
+
+    empty = _empty_dir_check(results)
+    assert empty is not None
+    assert _listed(empty) == [_rel(root, proj / ".venv")]
+    assert _ignored_check(results) is None
+
+    (proj / ".venv" / "bin" / ".gitkeep").write_text("")
+
+    results = validate_suite(load_config(root), "skill-a")
+    assert _empty_dir_check(results) is None
+    assert _ignored_check(results) is not None
+
+
+def test_validate_ignores_empty_dirs_outside_the_suites_fixtures(tmp_path):
+    root = _project(tmp_path)
+    _fixture_project(root)
+    _fixture_project(root, "otherfix")
+    _fixture_task(root)
+    _git_repo(root, ".venv/\n")
+
+    (root / "evals" / "fixtures" / "otherfix" / "empty").mkdir()
+
+    assert not [
+        r for r in validate_suite(load_config(root), "skill-a") if r.status == "FAIL"
+    ]
+
+
+def test_validate_allows_untracked_unignored_fixture_files(tmp_path):
+    """Files that are merely uncommitted must not block a run — a fixture
+    is untracked while it's being authored, and evals get run before the
+    commit."""
+    root = _project(tmp_path)
+    proj = _fixture_project(root)
+    _fixture_task(root)
+    _git_repo(root, ".venv/\n")
+
+    (proj / "brand_new.py").write_text("# not committed yet")
+
+    results = validate_suite(load_config(root), "skill-a")
+
+    assert not [r for r in results if r.status == "FAIL"]
+
+
+def test_validate_ignores_paths_outside_the_suites_fixtures(tmp_path):
+    """Scoped to the fixtures this suite references — an unrelated
+    fixture's cruft shouldn't block a run that doesn't stage it."""
+    root = _project(tmp_path)
+    _fixture_project(root)
+    _fixture_project(root, "otherfix")
+    _fixture_task(root)
+    _git_repo(root, ".venv/\n")
+
+    other_venv = root / "evals" / "fixtures" / "otherfix" / ".venv"
+    other_venv.mkdir(parents=True)
+    (other_venv / "x").write_text("x")
+
+    results = validate_suite(load_config(root), "skill-a")
+
+    assert not [r for r in results if r.status == "FAIL"]
+
+
+def test_validate_silent_when_git_cannot_be_asked(tmp_path):
+    """Not a work tree (or no git binary): the framework must work for
+    projects that don't use git at all, so fixture hygiene says nothing —
+    neither finding means anything without a checkout to be missing from,
+    and nothing gets filtered out of the fixture either."""
+    root = _project(tmp_path)  # deliberately not a git repo
+    proj = _fixture_project(root)
+    _fixture_task(root)
+
+    # Both offenders present: an ignorable-looking tree and an empty dir.
+    (proj / ".venv" / "bin").mkdir(parents=True)
+    (proj / ".venv" / "bin" / "python").write_text("#!/bin/sh\n")
+    (proj / "output").mkdir()
+
+    results = validate_suite(load_config(root), "skill-a")
+
+    assert all(r.status == "OK" for r in results)
+    assert not [r for r in results if "fixtures have" in r.name]
+
+
+def test_runner_refuses_to_run_with_gitignored_fixture_content(tmp_path, monkeypatch):
+    root = _project(tmp_path)
+    proj = _fixture_project(root)
+    _fixture_task(root)
+    _dummy_provider_config(root)
+    _git_repo(root, ".venv/\n")
+
+    (proj / ".venv").mkdir()
+    (proj / ".venv" / "x").write_text("x")
+    monkeypatch.chdir(root)
+
+    from agent_exam.runner import RunRequest, run
+
+    with pytest.raises(UsageError, match="stop ignoring them"):
+        run(
+            load_config(root),
+            RunRequest(
+                specs=[("skill-a", None)],
+                provider="dummy",
+                model="",
+                k=1,
+                n_parallel=1,
+                without_skill=False,
+            ),
+        )
+
+    # Refused before creating a run dir — no tokens, no artifacts.
+    assert not (root / "evals" / "runs").exists()
+
+
+def test_validate_passes_with_existing_fixture(tmp_path):
+    root = _project(tmp_path)
+    _fixture_project(root)  # a fixture with a file in it, not an empty dir
+    _git_repo(root, ".venv/\n")  # so git can vet it
+    _fixture_task(root)
     results = validate_suite(load_config(root), "skill-a")
     assert all(r.status == "OK" for r in results)
 

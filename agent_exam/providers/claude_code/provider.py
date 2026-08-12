@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import tempfile
 import threading
@@ -16,10 +15,12 @@ from ...errors import FrameworkError, ProviderTimeout, RateLimitError
 from ...ratelimit import with_retries
 from ...schemas import CheckResult, RunResult
 from ..base import Provider
+from ..child_env import build_child_env
 from ..process_utils import terminate_tree
-from ..skill_staging import check_global_skills_against_staged
+from ..skill_staging import check_global_skills_against_staged, discover_skills
 from .blocked_plugins import enabled_blocked_in_settings
 from .doctor_probes import blocked_plugins_in_probe, hermetic_check
+from .session_checks import skill_descriptions_in_session
 from .stream_parser import StreamState, drain_stderr, drain_stream
 from .transcripts import load_run_result
 
@@ -97,6 +98,15 @@ class ClaudeCodeProvider(Provider):
             "--output-format",
             "stream-json",
             "--verbose",
+            # Leave the developer's `~/.claude/settings.json` out of the run, so
+            # the plugins they happen to have enabled don't load into it. Their
+            # skills compete with the staged ones for the fixed-size skill
+            # listing Claude Code shows the model, and once that budget is
+            # spent the remaining skills are listed by name alone, with no
+            # description — so a staged skill can silently stop triggering
+            # depending on what the developer installed.
+            "--setting-sources",
+            "project,local",
         ]
         if stop_on_first_skill:
             cmd.append("--include-partial-messages")
@@ -124,12 +134,9 @@ class ClaudeCodeProvider(Provider):
             cmd.extend(["--allowed-tools", ",".join(str(p) for p in allowed)])
         cmd.extend(provider_options.get("extra_args") or [])
 
-        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
-        for key, value in (provider_options.get("env_overrides") or {}).items():
-            if value is None:
-                env.pop(key, None)
-            else:
-                env[key] = value
+        env = build_child_env(
+            provider_options.get("env_overrides"), drop=("CLAUDECODE",)
+        )
 
         cwd_abs = str(cwd.resolve())
         started = time.time()
@@ -380,6 +387,19 @@ class ClaudeCodeProvider(Provider):
                 blocked_plugins_in_probe(transcript, cfg_provider.blocked_plugins)
             )
         return results
+
+    def session_checks(self, run_result, cfg=None) -> list[CheckResult]:
+        """Runner-side warnings from the first finished attempt. Today just
+        checks that every staged skill was listed with its description.
+        """
+        if cfg is None:
+            return []
+        return [
+            skill_descriptions_in_session(
+                run_result.raw_transcript_path,
+                [name for name, _path in discover_skills(cfg.skills_dirs)],
+            )
+        ]
 
     def pre_run_warnings(self, cfg=None) -> list[CheckResult]:
         """Runner-side warnings printed before any trial starts. Today

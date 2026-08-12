@@ -48,10 +48,19 @@ def test_multiline_reasoning_preserved():
     assert r == "Line 1.\nLine 2.\nLine 3."
 
 
-def test_verdict_not_on_last_nonempty_line_fails():
-    # Spec: "Look for VERDICT: on the last non-empty line."
-    v, _r = parse_verdict("VERDICT: YES\nsomething after")
-    assert v == "UNCLEAR", "verdict must be on last non-empty line"
+def test_verdict_followed_by_trailing_paragraph():
+    # Judges sometimes state the verdict then keep writing a summary; the
+    # verdict must still be honoured rather than falling back to UNCLEAR.
+    v, r = parse_verdict("Reasoning.\nVERDICT: YES\n\nA concluding paragraph.")
+    assert v == "YES"
+    assert "A concluding paragraph." not in r
+
+
+def test_last_verdict_wins():
+    # If a response contains more than one VERDICT marker, the last one is
+    # the judge's final answer.
+    v, _ = parse_verdict("VERDICT: NO\nOn reflection...\nVERDICT: YES")
+    assert v == "YES"
 
 
 @pytest.mark.parametrize("suffix", ["", ".", " ", "!"])

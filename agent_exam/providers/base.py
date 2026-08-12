@@ -112,6 +112,15 @@ class Provider:
         Return an empty list if nothing applies.
         """
 
+    def session_checks(self, run_result: RunResult, cfg: Config) -> list[CheckResult]:
+        """Warnings the runner prints once, from the first finished attempt's
+        transcript. For what an attempt reveals about the skills under test —
+        e.g. whether the agent was shown enough of them to route on — as
+        opposed to :meth:`probe_checks`, which is about the developer's setup.
+        Providers with nothing to check inherit this.
+        """
+        return []
+
     def pre_run_warnings(self, cfg: Config) -> list[CheckResult]:
         """Warnings the runner prints at run start, before any trials.
         Used for things like "you have a conflicting plugin enabled

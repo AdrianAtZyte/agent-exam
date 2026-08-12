@@ -11,7 +11,11 @@ _VERDICT_RE = re.compile(r"VERDICT\s*:\s*(YES|NO|UNCLEAR)\b", re.IGNORECASE)
 def parse_verdict(response: str) -> tuple[Verdict, str]:
     """Parse a judge response into (verdict, reasoning).
 
-    - Looks for `VERDICT:` on the last non-empty line.
+    - Looks for the *last* line containing a `VERDICT:` marker. Judges are
+      asked to put the verdict on the final line, but they sometimes state it
+      mid-response and then keep writing (a trailing summary paragraph); taking
+      the last match honours the intended verdict instead of falling back to
+      UNCLEAR because a prose line came after it.
     - Everything before that line is reasoning (whitespace-trimmed).
     - If no `VERDICT:` line found, returns UNCLEAR with the raw response as
       the reasoning (for debugging).
@@ -20,18 +24,11 @@ def parse_verdict(response: str) -> tuple[Verdict, str]:
         return "UNCLEAR", response or ""
 
     lines = response.splitlines()
-    last_idx: int | None = None
     for i in range(len(lines) - 1, -1, -1):
-        if lines[i].strip():
-            last_idx = i
-            break
-    if last_idx is None:
-        return "UNCLEAR", response.strip()
+        match = _VERDICT_RE.search(lines[i])
+        if match:
+            verdict: Verdict = match.group(1).upper()  # type: ignore[assignment]
+            reasoning = "\n".join(lines[:i]).strip()
+            return verdict, reasoning
 
-    match = _VERDICT_RE.search(lines[last_idx])
-    if not match:
-        return "UNCLEAR", response.strip()
-
-    verdict: Verdict = match.group(1).upper()  # type: ignore[assignment]
-    reasoning = "\n".join(lines[:last_idx]).strip()
-    return verdict, reasoning
+    return "UNCLEAR", response.strip()
