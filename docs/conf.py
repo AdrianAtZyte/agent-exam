@@ -1,7 +1,7 @@
 project = "agent-exam"
 project_copyright = "2026, Zyte Group Ltd"
 author = "Zyte Group Ltd"
-release = "0.0.0"
+release = "0.1.0"
 
 extensions = [
     "sphinx_scrapy",
