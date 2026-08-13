@@ -9,6 +9,7 @@ from fixtures.canned_run_result import (
 )
 
 from agent_exam.judge.format_trajectory import (
+    TOOL_RESULT_MAX,
     final_output_text,
     format_trajectory,
 )
@@ -33,7 +34,8 @@ def test_basic_render_has_turns_and_tool_calls():
 
 
 def test_tool_result_truncation_keeps_head_and_tail():
-    long_result = "A" * 400 + "B" * 400 + "C" * 400
+    third = TOOL_RESULT_MAX
+    long_result = "A" * third + "B" * third + "C" * third
     trajectory = [assistant_turn(tool_call("Read", result=long_result))]
     rendered = format_trajectory(trajectory)
     assert "chars removed" in rendered
