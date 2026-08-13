@@ -9,6 +9,7 @@ from fixtures.canned_run_result import (
 )
 
 from agent_exam.judge.format_trajectory import (
+    TOOL_INPUT_MAX,
     TOOL_RESULT_MAX,
     final_output_text,
     format_trajectory,
@@ -49,6 +50,27 @@ def test_subagent_indented():
     rendered = format_trajectory([parent])
     sub_line = next(line for line in rendered.splitlines() if "sub output" in line)
     assert sub_line.startswith("    "), "subagent turns should render indented"
+
+
+def test_tool_input_truncation_keeps_the_tail_of_the_command():
+    command = "first-command " + "x" * TOOL_INPUT_MAX + " last-command"
+    trajectory = [assistant_turn(tool_call("Bash", input_={"command": command}))]
+    rendered = format_trajectory(trajectory)
+    assert "first-command" in rendered
+    assert "last-command" in rendered
+
+
+def test_subagent_bodies_go_before_parent_turns():
+    subagent = [assistant_turn(text("y" * 4000)) for _ in range(10)]
+    trajectory = [
+        assistant_turn(tool_call("Task", subagent=subagent)),
+        *[assistant_turn(text("z" * 500)) for _ in range(10)],
+        assistant_turn(text("the final report")),
+    ]
+    rendered = format_trajectory(trajectory, max_chars=20_000)
+    assert "subagent turns omitted" in rendered
+    assert "[trajectory truncated]" not in rendered
+    assert "the final report" in rendered
 
 
 def test_truncates_when_over_limit():
