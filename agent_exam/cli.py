@@ -281,6 +281,14 @@ def main() -> None:
     If argv[1] is not a reserved verb / flag and not empty, treat it as a
     suite spec and invoke the `run` command.
     """
+    # Reports, diffs and trajectories are full of arrows and box characters,
+    # and a Windows console hands Python a cp1252 stdout unless UTF-8 mode is
+    # on, which turns any of them into a UnicodeEncodeError.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
     argv = sys.argv[1:]
     if argv and not argv[0].startswith("-") and argv[0] not in RESERVED_VERBS:
         argv = ["run", *argv]
