@@ -256,8 +256,8 @@ def validate_suite(
 ) -> list[CheckResult]:
     """Structural checks for a suite: task files parse, every referenced
     fixture exists on disk and holds nothing git ignores, every
-    `concurrency_group` is declared, and `suite.yml` (if present) is
-    well-formed.
+    `concurrency_group` and every tag is declared, and `suite.yml` (if
+    present) is well-formed.
 
     Returns a list of CheckResult. A FAIL is fatal for a run (the runner
     raises); OK is informational and only `doctor` renders it. No check
@@ -348,6 +348,21 @@ def validate_suite(
                 hint=(
                     f"not in config.yaml concurrency_groups: {', '.join(undeclared)}"
                 ),
+            )
+        )
+
+    # Same for tags. A misspelled tag excludes nothing, and one misspelled
+    # into another declared name takes the task out of every wide run —
+    # both silent, so refuse the run instead.
+    undeclared_tags = sorted(
+        {tag for t in tasks for tag in t.tags if tag not in cfg.tags}
+    )
+    if undeclared_tags:
+        results.append(
+            CheckResult(
+                name=f"{suite}: tags declared",
+                status="FAIL",
+                hint=f"not in config.yaml tags: {', '.join(undeclared_tags)}",
             )
         )
 

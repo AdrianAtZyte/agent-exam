@@ -36,6 +36,10 @@ These appear at the top of any task file.
     Name of a concurrency limiter declared in :file:`evals/config.yaml`. Tasks
     in the same group serialize within a run, up to that group's cap.
 
+``tags``
+    Tags this task wears, on top of its suite's. Each must be declared in
+    :file:`evals/config.yaml`; see :ref:`tags`.
+
 ``timeout_seconds``
     Per-attempt wall-clock timeout, overriding
     ``default_task_timeout_seconds``.

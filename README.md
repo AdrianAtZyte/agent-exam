@@ -81,6 +81,9 @@ pre_run_hook = "evals.hooks:pre_run_hook"
 - **Reality-check modes.** `--without-skill` re-runs a suite with one skill
   removed and `--no-skills` with the whole library removed, so you can see
   whether a skill earns its place against the bare agent.
+- **Tags for the costly evals.** Tag a task or a whole suite, declare the tag
+  excluded by default, and a run spanning every suite covers the cheap tasks
+  only; `--tag` and `--all-tags` bring the rest back.
 - **Deterministic and LLM-judge assertions**, per-attempt fixtures and isolated
   working directories, parallel execution with concurrency groups, and
   regression reports across runs (`runs`, `show`, `history`, `diff`).

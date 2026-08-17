@@ -66,6 +66,23 @@ reserved verb is treated as a suite spec and dispatched to ``run``, so
     reality-check modes; pass it explicitly on a normal run to produce a
     with-skill run over the same task set for comparison.
 
+``--tag <name>``
+    Include the tasks wearing a tag configured ``exclude_by_default``.
+    Repeatable.
+
+``--exclude-tag <name>``
+    Drop the tasks wearing ``<name>``, whether or not the tag is excluded by
+    default. Repeatable, and it applies to every spec, including a task named
+    on the command line.
+
+``--all-tags``
+    Lift every default exclusion at once. ``--exclude-tag`` still applies.
+
+A run skips the tasks wearing a tag configured ``exclude_by_default`` in
+:file:`evals/config.yaml`, the more narrowly it asked the less of that applies —
+see :ref:`tags` for the three cases. The header line reports what was skipped,
+and so does ``config.tasks_excluded_by_tag`` in the run's :file:`run.json`.
+
 ``runs`` — list recent runs
 ===========================
 

@@ -61,6 +61,9 @@ def _run_cmd(
     without_skill: bool,
     no_skills: bool,
     no_triggers: bool,
+    tags: tuple[str, ...] = (),
+    exclude_tags: tuple[str, ...] = (),
+    all_tags: bool = False,
 ) -> int:
     cfg = load_config()
     specs = [_parse_suite_spec(spec) for spec in suite_specs]
@@ -73,6 +76,9 @@ def _run_cmd(
         without_skill=without_skill,
         no_skills=no_skills,
         no_triggers=no_triggers,
+        tags=list(tags),
+        exclude_tags=list(exclude_tags),
+        all_tags=all_tags,
     )
     return run(cfg, req)
 
@@ -221,7 +227,10 @@ def doctor_cmd(no_llm: bool, provider: str | None) -> None:
         "  <suite>::<task>::<n>     run one fanned-out trigger case (0-based)\n"
         "  *::trigger               run the trigger task from every suite that has one\n\n"
         "Multiple specs are accepted: agent-exam run suite-a suite-b::task-x\n\n"
-        "Shortcut: `agent-exam <suite>` dispatches here implicitly."
+        "Shortcut: `agent-exam <suite>` dispatches here implicitly.\n\n"
+        "Tasks wearing a tag configured exclude_by_default are skipped unless "
+        "the spec asks for them: naming a suite ignores the tags that suite "
+        "declares, naming a task runs it. --tag and --all-tags override."
     ),
     context_settings={"ignore_unknown_options": True},
 )
@@ -252,6 +261,25 @@ def doctor_cmd(no_llm: bool, provider: str | None) -> None:
     "Implied by the reality-check modes; pass it on the with-skill run to "
     "compare like for like.",
 )
+@click.option(
+    "--tag",
+    "tags",
+    multiple=True,
+    help="Include the tasks wearing this tag even though it is "
+    "excluded by default. Repeatable.",
+)
+@click.option(
+    "--exclude-tag",
+    "exclude_tags",
+    multiple=True,
+    help="Drop the tasks wearing this tag. Repeatable, and applies to "
+    "every spec — even a task named on the command line.",
+)
+@click.option(
+    "--all-tags",
+    is_flag=True,
+    help="Ignore every exclude_by_default tag, i.e. run the expensive ones too.",
+)
 def run_cmd(
     suite_specs: tuple[str, ...],
     provider: str,
@@ -261,6 +289,9 @@ def run_cmd(
     without_skill: bool,
     no_skills: bool,
     no_triggers: bool,
+    tags: tuple[str, ...],
+    exclude_tags: tuple[str, ...],
+    all_tags: bool,
 ) -> None:
     code = _run_cmd(
         suite_specs,
@@ -271,6 +302,9 @@ def run_cmd(
         without_skill,
         no_skills,
         no_triggers,
+        tags=tags,
+        exclude_tags=exclude_tags,
+        all_tags=all_tags,
     )
     sys.exit(code)
 
