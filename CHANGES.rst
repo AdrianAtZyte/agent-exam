@@ -2,7 +2,7 @@
 Changes
 =======
 
-0.2.0 (unreleased)
+0.2.0 (2026-08-17)
 ==================
 
 -   Added tags, so that a run covering every suite can leave the costly evals
