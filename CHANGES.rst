@@ -2,8 +2,18 @@
 Changes
 =======
 
-0.1.1 (unreleased)
+0.2.0 (unreleased)
 ==================
+
+-   Added tags, so that a run covering every suite can leave the costly evals
+    out.
+
+    Declare every tag in :file:`evals/config.yaml`, marking the ones to skip
+    with ``exclude_by_default: true``; suites wear them through ``tags:`` in
+    :file:`suite.yml`, tasks through ``tags:`` in their own YAML. Naming a
+    suite or a task in the run spec brings back what it is tagged as, and
+    ``--tag``, ``--all-tags`` and ``--exclude-tag`` override the defaults
+    outright. The header line and ``run.json`` report what a run left out.
 
 -   Fixed a crash on Windows consoles, where printing reports, diffs or
     trajectories raised ``UnicodeEncodeError`` on the arrows and box characters
