@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import shutil
+import sys
 import uuid
 from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .errors import ProviderTimeout, UsageError
+from .errors import AgentExamError, ProviderTimeout, UsageError
 from .providers import get_provider
 from .schemas import RunResult
 from .serde import to_json_dict, write_json
@@ -126,7 +127,16 @@ def _mirror_cwd(src: Path, dst: Path) -> None:
     if dst.exists():
         shutil.rmtree(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(src, dst, symlinks=False, ignore=_ignore_skills)
+    # A killed agent (and the children that outlive its timeout) can leave
+    # half-written trees behind, so dereferencing a symlink whose target
+    # never appeared must not abort the archive.
+    shutil.copytree(
+        src,
+        dst,
+        symlinks=False,
+        ignore=_ignore_skills,
+        ignore_dangling_symlinks=True,
+    )
 
 
 def _execute_attempt(
@@ -258,12 +268,16 @@ def _execute_attempt(
     # expects the path to exist. Fixtured triggers use per-attempt cwds
     # and get the normal mirror.
     archive_cwd = paths.attempt_cwd(task.suite, task.name, attempt_n)
-    if trigger_shares_cwd:
+    if trigger_shares_cwd or not runtime_cwd.is_dir():
         archive_cwd.mkdir(parents=True, exist_ok=True)
-    elif runtime_cwd.is_dir():
-        _mirror_cwd(runtime_cwd, archive_cwd)
     else:
-        archive_cwd.mkdir(parents=True, exist_ok=True)
+        try:
+            _mirror_cwd(runtime_cwd, archive_cwd)
+        except OSError as exc:
+            # A partial archive costs one attempt's evidence; letting the
+            # error escape costs every attempt still queued behind it.
+            print(f"archiving cwd failed for {archive_cwd}: {exc}", file=sys.stderr)
+            archive_cwd.mkdir(parents=True, exist_ok=True)
 
     # Copy raw NDJSON stream from tmp root to archive tree.
     raw_path = run_result.raw_transcript_path if run_result is not None else None
@@ -455,23 +469,44 @@ def run_plan(
         for batch in batches:
             if not batch:
                 continue
-            futures: list[Future[AttemptOutcome]] = []
+            futures: dict[Future[AttemptOutcome], tuple[Task, int]] = {}
             for task, attempt_n in batch:
                 _announce(task, attempt_n)
                 started = _utc_now_iso()
-                futures.append(
-                    pool.submit(
-                        _worker_entry,
-                        task,
-                        attempt_n,
-                        cfg,
-                        provider_name,
-                        model,
-                        paths,
-                        started,
-                        run_tmp_root,
-                        skills_to_exclude,
-                    )
+                fut = pool.submit(
+                    _worker_entry,
+                    task,
+                    attempt_n,
+                    cfg,
+                    provider_name,
+                    model,
+                    paths,
+                    started,
+                    run_tmp_root,
+                    skills_to_exclude,
                 )
+                futures[fut] = (task, attempt_n)
             for fut in as_completed(futures):
-                yield fut.result()
+                task, attempt_n = futures[fut]
+                try:
+                    outcome = fut.result()
+                except AgentExamError:
+                    # Deliberate framework signals — a bad config or an
+                    # exhausted rate limit applies to the whole run, so let
+                    # them abort it.
+                    raise
+                except Exception as exc:
+                    print(
+                        f"attempt error {task.suite}::{task.name} "
+                        f"attempt-{attempt_n}: {exc!r}",
+                        file=sys.stderr,
+                    )
+                    outcome = AttemptOutcome(
+                        suite=task.suite,
+                        task_name=task.name,
+                        attempt_n=attempt_n,
+                        attempt_cwd=paths.attempt_cwd(task.suite, task.name, attempt_n),
+                        run_result=None,
+                        error_verdict="error",
+                    )
+                yield outcome

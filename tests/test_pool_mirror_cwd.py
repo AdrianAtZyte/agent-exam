@@ -42,9 +42,9 @@ def test_mirror_cwd_ignores_nested_dirs_named_like_discovery_dirs(tmp_path):
 
 def test_mirror_cwd_archives_agent_created_build_artifacts(tmp_path):
     """Whatever the agent created stays in the archive — a `.venv` from its
-    own `uv run` records which packages it actually installed, and that's
-    evidence when reconstructing what went wrong. Only `_copy_fixture`
-    strips these, on the way in."""
+    own `uv run` records what actually got installed, which is not always
+    what a rebuild would produce, and that's evidence when reconstructing
+    what went wrong."""
     src = tmp_path / "src"
     dst = tmp_path / "dst"
 
@@ -59,3 +59,19 @@ def test_mirror_cwd_archives_agent_created_build_artifacts(tmp_path):
     assert (dst / "proj" / ".venv" / "lib" / "installed.so").exists()
     assert (dst / "proj" / "__pycache__" / "m.cpython-314.pyc").exists()
     assert (dst / "proj" / "items.jsonl").read_text() == '{"name": "x"}\n'
+
+
+def test_mirror_cwd_survives_dangling_symlinks(tmp_path):
+    """A timed-out attempt gets killed mid-write, so the cwd can hold a
+    symlink whose target never appeared."""
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+
+    (src / "half-built").mkdir(parents=True)
+    (src / "half-built" / "lib64").symlink_to("lib")
+    (src / "output.txt").write_text("agent output")
+
+    _mirror_cwd(src, dst)
+
+    assert (dst / "output.txt").read_text() == "agent output"
+    assert not (dst / "half-built" / "lib64").exists()
