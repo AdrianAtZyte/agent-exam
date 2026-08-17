@@ -101,6 +101,17 @@ class JudgeConfig(_StrictModel):
     pass_on: list[str] = Field(default_factory=lambda: ["YES"])
 
 
+class TagConfig(_StrictModel):
+    """One entry under `tags:` in `evals/config.yaml`.
+
+    A tag is a plain label — agent-exam attaches no meaning to the name, only
+    to *exclude_by_default*, which keeps the tasks wearing it out of a run
+    that did not ask for them narrowly enough (see `select_by_tags`).
+    """
+
+    exclude_by_default: bool = False
+
+
 class Config(_StrictModel):
     """The eval framework's runtime config — `evals/config.yaml`
     overlaid with `evals/config.local.yaml`, plus the project + evals
@@ -115,6 +126,9 @@ class Config(_StrictModel):
     judge: JudgeConfig = Field(default_factory=JudgeConfig)
     default_task_timeout_seconds: int = DEFAULT_TASK_TIMEOUT
     concurrency_groups: dict[str, int] = Field(default_factory=dict)
+    # Every tag a suite or task may wear. Undeclared tags are a validation
+    # error, so a typo can't silently exclude nothing — or everything.
+    tags: dict[str, TagConfig] = Field(default_factory=dict)
     # Dotted module:callable path for the pre-run hook, e.g.
     # ``"evals.hooks:pre_run_hook"``. Loaded from ``pyproject.toml
     # [tool.agent-exam] pre_run_hook``.

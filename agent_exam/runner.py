@@ -6,7 +6,7 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import click
 
 from . import run_modes
+from ._validate import reject_unknown_keys
 from .artifacts import RunPaths
 from .errors import ProviderTimeout, RateLimitExhausted, UsageError
 from .hooks import call_pre_run_hook
@@ -25,7 +26,7 @@ from .providers.skill_staging import discover_skills
 from .report import AttemptReport, report_to_dict, score_attempt
 from .scoring_context import ScoringContext
 from .serde import write_json
-from .tasks import Task, expand_specs, load_specs, load_suite_config
+from .tasks import Task, expand_specs, load_specs, load_suite_config, select_by_tags
 from .validation import validate_suite
 
 if TYPE_CHECKING:
@@ -48,6 +49,12 @@ class RunRequest:
     # modes (no skill loaded → nothing to fire); settable on its own so the
     # with-skill half of a reality-check comparison covers the same tasks.
     no_triggers: bool = False
+    # Tag selection. `tags` (--tag) lifts a tag's default exclusion,
+    # `exclude_tags` (--exclude-tag) drops the tasks wearing one, and
+    # `all_tags` lifts every default exclusion at once.
+    tags: list[str] = field(default_factory=list)
+    exclude_tags: list[str] = field(default_factory=list)
+    all_tags: bool = False
     # When False the ephemeral run-tmp root is left on disk so tests can
     # inspect the runtime filesystem state (e.g. where skills were staged).
     cleanup_tmp_root: bool = True
@@ -287,10 +294,30 @@ def run(cfg: Config, req: RunRequest) -> int:
         specs_str = ", ".join(f"{s}::{t}" if t else s for s, t in req.specs)
         raise UsageError(f"no tasks matched: {specs_str}")
 
+    suite_config_map = {s: load_suite_config(cfg.evals_dir, s) for s, _ in concrete}
+
+    for names, label in ((req.tags, "--tag"), (req.exclude_tags, "--exclude-tag")):
+        reject_unknown_keys(names, cfg.tags, label=label, noun="tag")
+    tasks, tags_excluded = select_by_tags(
+        tasks,
+        concrete,
+        default_excluded=[n for n, t in cfg.tags.items() if t.exclude_by_default],
+        suite_tags={s: sc.tags for s, sc in suite_config_map.items()},
+        include=req.tags,
+        exclude=req.exclude_tags,
+        all_tags=req.all_tags,
+    )
+    if not tasks:
+        specs_str = ", ".join(f"{s}::{t}" if t else s for s, t in req.specs)
+        raise UsageError(
+            f"every task in {specs_str} is excluded by tag "
+            f"({_tags_excluded_str(tags_excluded)}); pass --tag <tag> or "
+            f"--all-tags to include them"
+        )
+
     # Drop trigger tasks, either because the user asked (--no-triggers) or
     # because a reality-check mode implies it: with the skills withheld there
     # is nothing for a trigger case to fire.
-    suite_config_map = {s: load_suite_config(cfg.evals_dir, s) for s, _ in concrete}
     effective_k = req.k
     drop_triggers = req.no_triggers or req.reality_check
     if drop_triggers:
@@ -413,7 +440,9 @@ def run(cfg: Config, req: RunRequest) -> int:
     for warning in provider.pre_run_warnings(cfg):
         _emit_warning(warning)
 
-    _emit_run_header(paths.run_id, req, plan, model, effective_k, concrete)
+    _emit_run_header(
+        paths.run_id, req, plan, model, effective_k, concrete, tags_excluded
+    )
 
     attempt_starts: dict[tuple[str, str, int], float] = {}
     heartbeat = _Heartbeat(
@@ -517,6 +546,10 @@ def run(cfg: Config, req: RunRequest) -> int:
                 "no_skills": req.no_skills,
                 "no_triggers": drop_triggers,
                 "skills_excluded": sorted(skills_to_exclude),
+                "tags": sorted(req.tags),
+                "exclude_tags": sorted(req.exclude_tags),
+                "all_tags": req.all_tags,
+                "tasks_excluded_by_tag": dict(sorted(tags_excluded.items())),
                 "specs_requested": [f"{s}::{t}" if t else s for s, t in req.specs],
                 "provider": req.provider,
                 "tmp_root": str(run_tmp_root),
@@ -572,6 +605,10 @@ def _emit_warning(check) -> None:
     click.echo(click.style(line, fg="yellow"), err=True)
 
 
+def _tags_excluded_str(counts: dict[str, int]) -> str:
+    return ", ".join(f"{tag} ({n})" for tag, n in sorted(counts.items()))
+
+
 def _emit_run_header(
     run_id: str,
     req: RunRequest,
@@ -579,6 +616,7 @@ def _emit_run_header(
     model: str,
     effective_k: int,
     concrete: list[tuple[str, str | None]],
+    tags_excluded: dict[str, int],
 ) -> None:
     total_attempts = plan.attempts_per_task * len(plan.tasks)
     task_count = len(plan.tasks)
@@ -594,6 +632,11 @@ def _emit_run_header(
         f"{label}:    {specs_str} "
         f"({task_count} {task_word} × k={effective_k} = {total_attempts} attempts)"
     )
+    if tags_excluded:
+        total = sum(tags_excluded.values())
+        click.echo(
+            f"Skipped:  {total} task(s) by tag: {_tags_excluded_str(tags_excluded)}"
+        )
     click.echo(f"Provider: {req.provider} ({model or 'default'})")
     click.echo(f"Parallel: up to {parallelism}")
     click.echo("")

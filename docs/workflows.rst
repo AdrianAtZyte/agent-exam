@@ -206,6 +206,42 @@ Peak context climbing over time
 
 Nothing gates automatically; you decide.
 
+Leaving the expensive evals out of a wide run
+=============================================
+
+Some tasks do not belong in every run: a suite graded by ``judge_agent`` at a
+dollar a task, a task that mutates a live account, a task that hits the real
+network. Tag them, and declare the tag ``exclude_by_default``:
+
+.. code-block:: yaml
+
+    # evals/config.yaml
+    tags:
+      expensive: {exclude_by_default: true}
+
+.. code-block:: yaml
+
+    # evals/suites/analyze-page-quality/suite.yml
+    tags: [expensive]
+
+A task wears its own tags the same way, with ``tags:`` in its YAML. Either way
+a wide run now leaves those tasks out and reports how many it left. Asking more
+narrowly brings them back: naming the suite runs what the suite is tagged as,
+and naming a task runs that task:
+
+.. code-block:: bash
+
+    agent-exam '*'                        # every suite, cheap tasks only
+    agent-exam '*' --tag expensive        # ... and the expensive ones too
+    agent-exam '*' --all-tags             # ... and anything else excluded by default
+    agent-exam analyze-page-quality       # the suite is the expensive one — run it
+    agent-exam zyte::scrapy-cloud-deploy  # one tagged task out of an untagged suite
+    agent-exam '*' --exclude-tag network  # drop a tag that is not excluded by default
+
+The middle two differ in an easy-to-miss way: ``agent-exam zyte`` skips the
+``remote-account`` tasks inside ``zyte``, because that tag is on the tasks
+rather than on the suite. :ref:`tags` has the full table.
+
 Reality check: running without the skill
 ========================================
 

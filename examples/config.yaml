@@ -71,3 +71,14 @@ default_task_timeout_seconds: 300
 # that share a rate-limited external service.
 concurrency_groups:
   my_api: 1
+
+# Every tag a suite or task may wear; an undeclared one fails validation.
+# `exclude_by_default` keeps the tasks wearing it out of a run, the more
+# narrowly the run asks the less of that applies: a spec naming one suite
+# ignores the tags that suite declares in its suite.yml, and a spec naming
+# one task runs it whatever it wears. `--tag expensive` and `--all-tags`
+# lift the exclusions outright.
+tags:
+  expensive:      {exclude_by_default: true}
+  remote-account: {exclude_by_default: true}
+  network:        {}

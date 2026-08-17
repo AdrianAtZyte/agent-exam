@@ -26,6 +26,10 @@ Top-level fields
 ``concurrency_groups``
     Named concurrency caps. See :ref:`concurrency-groups` below.
 
+``tags``
+    Labels suites and tasks may wear, and which of them are skipped by
+    default. See :ref:`tags` below.
+
 ``providers``
     Per-harness configuration blocks. See :ref:`providers` below.
 
@@ -238,6 +242,51 @@ in parallel within a single run:
       github_api: 1
 
 Tasks opt in with ``concurrency_group:`` in their YAML.
+
+.. _tags:
+
+``tags``
+========
+
+Every tag a suite or a task may wear. A tag that is not declared here fails
+validation, so a typo cannot quietly change what a run covers:
+
+.. code-block:: yaml
+
+    tags:
+      expensive:      {exclude_by_default: true}
+      remote-account: {exclude_by_default: true}
+      network:        {}
+
+``exclude_by_default``
+    Keeps the tasks wearing this tag out of runs that cast a wide net.
+    Defaults to ``false``, which leaves the tag a plain label — still useful
+    with ``--exclude-tag``.
+
+The name means nothing to agent-exam: ``expensive`` is not measured, it is
+what you chose to call the tasks you do not want in every run.
+
+Tasks wear tags through ``tags:`` in their own YAML, whole suites through
+``tags:`` in :file:`suite.yml`; the two union.
+
+What a run does with a default-excluded tag depends on how narrowly it asked:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Spec
+     - Effect
+   * - ``'*'``, or several suites
+     - Every task wearing the tag is skipped.
+   * - One suite
+     - Skipped, except for the tags that suite itself declares — naming a
+       suite asks for what that suite is, so a suite tagged ``expensive``
+       runs, while a single ``remote-account`` task inside it stays out.
+   * - ``<suite>::<task>``
+     - Runs. Naming a task asks for that task.
+
+``--tag``, ``--exclude-tag`` and ``--all-tags`` override all of it — see
+:doc:`cli`.
 
 A full example
 ==============

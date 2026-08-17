@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import yaml
 from pydantic import (
@@ -30,6 +30,9 @@ from .providers.codex_cli.provider import CodexCliTaskConfig
 from .providers.copilot_cli.provider import CopilotCliTaskConfig
 from .providers.dummy import DummyTaskConfig
 from .providers.opencode.provider import OpenCodeTaskConfig
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
 
 # Recognized provider/harness sections in a task YAML. Each provider
 # owns the schema for its own section via `Provider.task_config_model`.
@@ -100,6 +103,11 @@ class Task:
     provider_configs: dict[str, Any] = field(default_factory=dict)
     # Task-level known_issue: the whole task is expected to fail.
     known_issue: str | None = None
+    # Sorted union of the task's own tags and its suite's. Every name has to
+    # be declared under `tags:` in config.yaml; a tag declared
+    # `exclude_by_default` keeps the task out of a wide run — see
+    # `select_by_tags`.
+    tags: list[str] = field(default_factory=list)
 
 
 # --- Pydantic task-file schema --------------------------------------------
@@ -134,6 +142,7 @@ class _TaskCommonModel(_StrictModel):
     setup: _Setup = Field(default_factory=_Setup)
     timeout_seconds: PositiveNumber | None = None
     concurrency_group: str | None = None
+    tags: list[str] = Field(default_factory=list)
     # Provider task-config sections — each provider owns its own schema
     # (`<Provider>.task_config_model`). Pydantic validates each present
     # section directly when constructing the Task model.
@@ -232,6 +241,8 @@ class SuiteConfig(_StrictModel):
     # Skills this suite evaluates. When `--without-skill` is used, these
     # skills are excluded from the bundle. Defaults to the suite name.
     evaluated_skills: list[str] | None = None
+    # Tags every task in the suite wears, on top of its own.
+    tags: list[str] = Field(default_factory=list)
 
 
 # --- Assertion entry parser (procedural — see comment on _ASSERTION_META_KEYS)
@@ -274,9 +285,12 @@ def _parse_assertion(entry: Any) -> Assertion:
 # --- File loading ---------------------------------------------------------
 
 
-def load_task(path: Path, suite: str) -> list[Task]:
+def load_task(path: Path, suite: str, suite_tags: Iterable[str] = ()) -> list[Task]:
     """Load a task YAML, validating it against the file schema, and
-    return one or more runtime `Task` dataclasses (triggers fan out)."""
+    return one or more runtime `Task` dataclasses (triggers fan out).
+
+    *suite_tags* are added to whatever tags the file declares.
+    """
     with path.open() as fh:
         raw = yaml.safe_load(fh) or {}
     if not isinstance(raw, dict):
@@ -292,8 +306,13 @@ def load_task(path: Path, suite: str) -> list[Task]:
         raise UsageError(render_validation_error(str(path), exc)) from exc
 
     if isinstance(model, _ExecuteTaskModel):
-        return [_task_from_execute(model, path, suite, raw)]
-    return _tasks_from_trigger(model, path, suite, raw)
+        tasks = [_task_from_execute(model, path, suite, raw)]
+    else:
+        tasks = _tasks_from_trigger(model, path, suite, raw)
+    tags = sorted({*model.tags, *suite_tags})
+    for task in tasks:
+        task.tags = tags
+    return tasks
 
 
 def _task_from_execute(m: _ExecuteTaskModel, path: Path, suite: str, raw: dict) -> Task:
@@ -433,9 +452,10 @@ def load_suite(
                 f"no task {task_filter!r} in suite {suite!r}. Available: {available}"
             )
         files = matched
+    suite_tags = load_suite_config(evals_dir, suite).tags
     out: list[Task] = []
     for f in files:
-        out.extend(load_task(f, suite))
+        out.extend(load_task(f, suite, suite_tags))
     if case_name is not None:
         selected = [t for t in out if t.name == case_name]
         if not selected:
@@ -477,6 +497,60 @@ def expand_specs(
         else:
             out.append((suite, task_filter))
     return out
+
+
+def select_by_tags(
+    tasks: list[Task],
+    specs: list[tuple[str, str | None]],
+    *,
+    default_excluded: Iterable[str],
+    suite_tags: Mapping[str, Iterable[str]] | None = None,
+    include: Iterable[str] = (),
+    exclude: Iterable[str] = (),
+    all_tags: bool = False,
+) -> tuple[list[Task], dict[str, int]]:
+    """Drop the tasks a run's tags exclude, and report what went.
+
+    Returns the surviving tasks plus, per tag, how many tasks it dropped.
+
+    *exclude* (``--exclude-tag``) always applies. *default_excluded* — the
+    tags configured ``exclude_by_default`` — is lifted per tag by *include*
+    (``--tag``), wholesale by *all_tags*, and for the tasks a spec names.
+    A run targeting a single suite also lifts the tags that suite declares in
+    its :file:`suite.yml`, taken from *suite_tags*: asking for one suite by
+    name asks for what that suite is, while a tag on an individual task still
+    keeps that task out.
+    """
+    by_default = set() if all_tags else set(default_excluded) - set(include)
+    suites = {suite for suite, _ in specs}
+    if len(suites) == 1:
+        by_default -= set((suite_tags or {}).get(next(iter(suites)), ()))
+    named = {(suite, task) for suite, task in specs if task is not None}
+    # A trigger file fans out into cases named "<stem>-<n>", so a spec that
+    # names the file exempts every case it produced; `<suite>::<task>::<n>`
+    # arrives as a filter matching one case name.
+    exempt = {
+        (t.suite, t.name)
+        for t in tasks
+        if any(
+            t.suite == suite and task in (t.source_path.stem, t.name)
+            for suite, task in named
+        )
+    }
+    forced = set(exclude)
+    dropped: dict[str, int] = {}
+    kept: list[Task] = []
+    for t in tasks:
+        hit = sorted(set(t.tags) & forced)
+        if not hit and (t.suite, t.name) not in exempt:
+            hit = sorted(set(t.tags) & by_default)
+        if hit:
+            # One task counts once, under its first tag, so the counts add
+            # up to the number of tasks dropped.
+            dropped[hit[0]] = dropped.get(hit[0], 0) + 1
+        else:
+            kept.append(t)
+    return kept, dropped
 
 
 def load_specs(evals_dir: Path, specs: list[tuple[str, str | None]]) -> list[Task]:

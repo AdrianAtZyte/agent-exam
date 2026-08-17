@@ -65,18 +65,23 @@ avoid collisions.
 ``suite.yml``
 -------------
 
-A suite may carry an optional :file:`suite.yml` declaring suite-level metadata.
-Today the only supported key is ``evaluated_skills``:
+A suite may carry an optional :file:`suite.yml` declaring suite-level metadata:
 
 .. code-block:: yaml
 
     # evals/suites/<suite>/suite.yml
     evaluated_skills:
       - github-release
+    tags:
+      - expensive
 
 ``evaluated_skills``
     The skills this suite evaluates. ``--without-skill`` excludes them from the
     bundle handed to the harness. Defaults to the suite name alone.
+
+``tags``
+    Tags every task in the suite wears, on top of its own. Each must be
+    declared in :file:`evals/config.yaml`; see :ref:`tags`.
 
 Using :file:`suite.yml` is worthwhile even for a single-skill suite: it makes
 the skill-to-suite mapping explicit. Use it in earnest when a suite covers
