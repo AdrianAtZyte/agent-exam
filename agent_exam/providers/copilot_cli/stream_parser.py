@@ -7,6 +7,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import IO
 
+from ...mcp import canonical_tool_name
 from ...schemas import SkillInvocation
 from ..base import Provider
 
@@ -31,6 +32,13 @@ class StreamState:
     target_skill: str | None = None
     detected_skill: SkillInvocation | None = None
     kill_signal: threading.Event = field(default_factory=threading.Event)
+
+    # Tool-targeted trigger: the canonical name of the tool the run is cut
+    # on, and the configured MCP server names its harness spelling is
+    # matched through. `detected_tool` holds the spelling Copilot used.
+    target_tool: str | None = None
+    detected_tool: str | None = None
+    mcp_servers: tuple[str, ...] = ()
 
     # Negative-trigger mode: kill as soon as the routing decision is clear.
     # For Copilot CLI this is always at assistant.message time (tool calls are
@@ -93,16 +101,16 @@ def _dispatch(line: str, state: StreamState) -> None:
 
     elif event_type == "assistant.message":
         if state.skill_detection_enabled:
-            _check_skill_in_message(event, state)
+            if state.target_tool:
+                _check_tool_in_message(event, state)
+            else:
+                _check_skill_in_message(event, state)
             # For negative trigger mode: once the model's tool requests are
-            # known (i.e. this message has arrived), if no skill was requested
-            # the routing decision is settled — kill immediately rather than
-            # waiting for tool.execution_start or assistant.turn_end.
-            if (
-                state.negative_trigger_mode
-                and not state.kill_signal.is_set()
-                and state.detected_skill is None
-            ):
+            # known (i.e. this message has arrived), if the target was not
+            # requested the routing decision is settled — kill immediately
+            # rather than waiting for tool.execution_start or
+            # assistant.turn_end.
+            if state.negative_trigger_mode and not state.kill_signal.is_set():
                 state.kill_signal.set()
 
     elif event_type == "assistant.turn_end":
@@ -113,7 +121,6 @@ def _dispatch(line: str, state: StreamState) -> None:
             state.skill_detection_enabled
             and state.negative_trigger_mode
             and not state.kill_signal.is_set()
-            and state.detected_skill is None
         ):
             state.kill_signal.set()
 
@@ -150,3 +157,26 @@ def _check_skill_in_message(event: dict, state: StreamState) -> None:
         )
         state.kill_signal.set()
         return
+
+
+def _check_tool_in_message(event: dict, state: StreamState) -> None:
+    """Check assistant.message toolRequests for the trigger's target tool.
+
+    Copilot requests every tool of a turn in one message, before any of them
+    runs, so the kill lands with the call already recorded in the stream the
+    trajectory is built from. An MCP request names its server and tool in
+    fields of their own, which beats splitting the joined name apart.
+    """
+    for req in (event.get("data") or {}).get("toolRequests") or []:
+        name = req.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        server, tool = req.get("mcpServerName"), req.get("mcpToolName")
+        if isinstance(server, str) and isinstance(tool, str):
+            canonical = f"mcp__{server}__{tool}"
+        else:
+            canonical = canonical_tool_name(name, state.mcp_servers)
+        if canonical == state.target_tool:
+            state.detected_tool = name
+            state.kill_signal.set()
+            return

@@ -7,6 +7,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import IO
 
+from ...mcp import canonical_tool_name
 from ...schemas import SkillInvocation
 from ..base import Provider
 
@@ -25,6 +26,13 @@ class StreamState:
     target_skill: str | None = None
     detected_skill: SkillInvocation | None = None
     kill_signal: threading.Event = field(default_factory=threading.Event)
+
+    # Tool-targeted trigger: the canonical name of the tool the run is cut
+    # on, and the configured MCP server names its harness spelling is
+    # matched through. `detected_tool` holds the spelling OpenCode used.
+    target_tool: str | None = None
+    detected_tool: str | None = None
+    mcp_servers: tuple[str, ...] = ()
 
     # Negative-trigger mode: for cases where the skill is expected NOT
     # to fire, the routing decision is settled as soon as the agent
@@ -95,6 +103,20 @@ def _dispatch_skill_detection(part: dict, state: StreamState) -> None:
     call_id = part.get("callID", "")
     tool_state = part.get("state") or {}
     tool_status = tool_state.get("status")
+
+    if state.target_tool:
+        # OpenCode publishes a tool part on stdout once the call is over, so
+        # the kill lands on the finished call and saves the rest of the turn
+        # rather than the call itself.
+        if (
+            isinstance(tool, str)
+            and canonical_tool_name(tool, state.mcp_servers) == state.target_tool
+        ):
+            state.detected_tool = tool
+            state.kill_signal.set()
+        elif state.negative_trigger_mode and tool_status in ("completed", "error"):
+            state.kill_signal.set()
+        return
 
     if tool == "skill" and tool_status in ("completed", "error"):
         skill_name = (tool_state.get("input") or {}).get("name")

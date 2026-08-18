@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .errors import AgentExamError, ProviderTimeout, UsageError
+from .mcp import canonicalize_tool_names, selected_names
 from .providers import get_provider
 from .schemas import RunResult
 from .serde import to_json_dict, write_json
@@ -176,6 +177,13 @@ def _execute_attempt(
     )
     if task.target_skill:
         provider_options["target_skill"] = task.target_skill
+    stop_early = task.stop_on_first_skill
+    if task.target_tool:
+        provider_options["target_tool"] = task.target_tool
+        # A harness that doesn't watch for the tool itself would cut the
+        # attempt on the first skill fire instead, throwing away the very
+        # call the assertion grades on; it runs the turn out instead.
+        stop_early = provider.supports_tool_triggers
     if task.should_trigger is False:
         # Negative trigger case: signal the provider to cut early once
         # the routing decision is evident (first non-Skill tool use or
@@ -211,6 +219,13 @@ def _execute_attempt(
     # block access to parent-dir skills.
     provider.stage_run_env(runtime_cwd, cfg, skills_to_exclude=skills_to_exclude)
 
+    # MCP servers are attached from a file the provider renders under the
+    # run tmp root — a sibling of the attempt cwd, never inside it, so a
+    # server block holding a credential stays out of the archived cwd.
+    provider_options.update(
+        provider.stage_mcp_config(run_tmp_root, cfg, task.mcp_servers)
+    )
+
     # Trigger tasks default to 60s: positives get killed on first skill
     # fire; negatives get killed on first non-Skill tool use or first
     # message_stop (see negative_trigger_mode). Wall-clock is a
@@ -239,7 +254,7 @@ def _execute_attempt(
                 model=model,
                 cwd=runtime_cwd,
                 provider_options=provider_options,
-                stop_on_first_skill=task.stop_on_first_skill,
+                stop_on_first_skill=stop_early,
                 timeout_seconds=timeout,
             )
         finally:
@@ -254,6 +269,14 @@ def _execute_attempt(
         run_result = exc.partial_run_result
         if _settled_nontrigger(task, run_result):
             error_verdict = None
+
+    # Every harness spells an MCP tool name its own way; the trajectory that
+    # reaches scoring and the archive uses one spelling, so a `tool_called:`
+    # line grades the same on all of them.
+    if run_result is not None and cfg.mcp_servers:
+        canonicalize_tool_names(
+            run_result.trajectory, selected_names(cfg, task.mcp_servers)
+        )
 
     attempt_finished = attempt_finished_writer()
 

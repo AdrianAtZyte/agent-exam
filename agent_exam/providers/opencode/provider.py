@@ -11,6 +11,7 @@ from pydantic import BaseModel, field_validator
 
 from ..._models import _StrictModel
 from ...errors import FrameworkError, ProviderTimeout
+from ...mcp import resolve_servers
 from ...ratelimit import with_retries
 from ...schemas import CheckResult, RunResult
 from ..base import Provider
@@ -75,6 +76,7 @@ class OpenCodeProvider(Provider):
     safe_judge_tools = ("read", "glob", "grep")
     skills_rel_path: ClassVar[str] = ".opencode/skills"
     task_config_model: ClassVar[type[BaseModel]] = OpenCodeTaskConfig
+    supports_tool_triggers: ClassVar[bool] = True
 
     def task_options(
         self, task_cfg: OpenCodeTaskConfig | None, framework_cfg, task_kind: str
@@ -133,8 +135,12 @@ class OpenCodeProvider(Provider):
             permission=provider_options.get("permission"),
             allowed_tools=provider_options.get("allowed_tools"),
         )
+        config: dict = {}
         if permission_config:
-            config = {"permission": permission_config}
+            config["permission"] = permission_config
+        if provider_options.get("mcp_config"):
+            config["mcp"] = provider_options["mcp_config"]
+        if config:
             env["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
         # Overrides last, so a task can still replace anything set above.
         apply_env_overrides(env, provider_options.get("env_overrides"))
@@ -153,6 +159,8 @@ class OpenCodeProvider(Provider):
         if stop_on_first_skill:
             state.skill_detection_enabled = True
             state.target_skill = provider_options.get("target_skill")
+            state.target_tool = provider_options.get("target_tool")
+            state.mcp_servers = tuple(provider_options.get("mcp_server_names") or ())
             state.negative_trigger_mode = bool(provider_options.get("negative_trigger"))
 
         # Open raw stream file before the reader thread starts so every
@@ -229,9 +237,33 @@ class OpenCodeProvider(Provider):
             state,
             wall_time_seconds=wall_time,
             stream_detected_skill=state.detected_skill,
+            stream_detected_tool=state.detected_tool,
             raw_transcript_path=raw_path,
             user_prompt=prompt,
         )
+
+    def stage_mcp_config(self, run_tmp_root: Path, cfg, servers=None) -> dict:
+        """Translate the servers into OpenCode's own `mcp` config block,
+        which ships to the child through `OPENCODE_CONFIG_CONTENT`.
+        """
+        mcp: dict[str, dict] = {}
+        for name, server in resolve_servers(cfg, servers).items():
+            if "url" in server:
+                entry = {"type": "remote", "url": server["url"], "enabled": True}
+                if server.get("headers"):
+                    entry["headers"] = server["headers"]
+            else:
+                entry = {
+                    "type": "local",
+                    "command": [server["command"], *server.get("args", [])],
+                    "enabled": True,
+                }
+                if server.get("env"):
+                    entry["environment"] = server["env"]
+            mcp[name] = entry
+        if not mcp:
+            return {}
+        return {"mcp_config": mcp, "mcp_server_names": sorted(mcp)}
 
     def _wait_with_skill_kill(
         self, process: subprocess.Popen, state: StreamState, timeout_seconds: int

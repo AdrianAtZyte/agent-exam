@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -112,6 +112,31 @@ class TagConfig(_StrictModel):
     exclude_by_default: bool = False
 
 
+class McpStdioServer(_StrictModel):
+    """A stdio MCP server entry under `mcp_servers:`, in the standard MCP
+    JSON shape — so a server block can be copy-pasted from its README.
+    """
+
+    type: Literal["stdio"] = "stdio"
+    command: str
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+
+
+class McpHttpServer(_StrictModel):
+    """An HTTP or SSE MCP server entry under `mcp_servers:`."""
+
+    type: Literal["http", "sse"]
+    url: str
+    headers: dict[str, str] = Field(default_factory=dict)
+
+
+#: One entry under `mcp_servers:`. A plain union rather than a discriminated
+#: one: the stdio shape carries no `type` in the MCP JSON everyone
+#: copy-pastes, and the two branches are told apart by `command` vs `url`.
+McpServerConfig = McpStdioServer | McpHttpServer
+
+
 class Config(_StrictModel):
     """The eval framework's runtime config — `evals/config.yaml`
     overlaid with `evals/config.local.yaml`, plus the project + evals
@@ -129,6 +154,10 @@ class Config(_StrictModel):
     # Every tag a suite or task may wear. Undeclared tags are a validation
     # error, so a typo can't silently exclude nothing — or everything.
     tags: dict[str, TagConfig] = Field(default_factory=dict)
+    # MCP servers available to the agent under evaluation. Tasks attach a
+    # subset with their own `mcp_servers:`; definitions live here so
+    # credentials stay out of task files, which reports serialize verbatim.
+    mcp_servers: dict[str, McpServerConfig] = Field(default_factory=dict)
     # Dotted module:callable path for the pre-run hook, e.g.
     # ``"evals.hooks:pre_run_hook"``. Loaded from ``pyproject.toml
     # [tool.agent-exam] pre_run_hook``.

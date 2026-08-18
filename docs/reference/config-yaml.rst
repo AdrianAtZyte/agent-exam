@@ -30,6 +30,10 @@ Top-level fields
     Labels suites and tasks may wear, and which of them are skipped by
     default. See :ref:`tags` below.
 
+``mcp_servers``
+    MCP servers to attach to the agent under evaluation. See
+    :ref:`mcp-servers` below.
+
 ``providers``
     Per-harness configuration blocks. See :ref:`providers` below.
 
@@ -287,6 +291,44 @@ What a run does with a default-excluded tag depends on how narrowly it asked:
 
 ``--tag``, ``--exclude-tag`` and ``--all-tags`` override all of it — see
 :doc:`cli`.
+
+.. _mcp-servers:
+
+``mcp_servers``
+===============
+
+MCP servers attached to the agent under evaluation — for skills that depend on
+one, and for evaluating a server's own tools and descriptions. Each entry is
+the standard MCP JSON, so a block copies over from the server's README:
+
+.. code-block:: yaml
+
+    mcp_servers:
+      files:
+        command: mcp-files
+        args: ["--root", "."]
+        env:
+          FILES_TOKEN: "${FILES_TOKEN}"
+      tickets:
+        type: http
+        url: https://tickets.example.com/mcp
+        headers:
+          Authorization: "Bearer ${TICKETS_TOKEN}"
+
+``${VAR}`` in an ``env`` or ``headers`` value is substituted from the
+environment agent-exam itself runs in, so credentials stay out of the file. A
+variable that is not set fails the run at its start, before any trial.
+
+Tasks attach every configured server unless they name a subset with their own
+``mcp_servers:`` — see :doc:`task-yaml`. Definitions belong here rather than in
+a task file because reports serialize task files verbatim.
+
+Runs are hermetic: the servers configured here are the only ones the agent
+sees, and the ones set up in the developer's own harness config are left out.
+
+Assertions grade MCP tool calls through the ordinary ``tool_called``,
+``tool_not_called`` and ``tool_count`` types. The tool *names* are
+harness-specific, so pair them with ``providers:``.
 
 A full example
 ==============

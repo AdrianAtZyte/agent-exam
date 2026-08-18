@@ -18,7 +18,7 @@ from ...schemas import (
     ToolCallBlock,
     Turn,
 )
-from ...trajectory_walk import iter_tool_calls, walk_turns
+from ...trajectory_walk import iter_tool_calls, record_detected_tool, walk_turns
 from .paths import codex_home
 from .stream_parser import StreamState, _skill_detection_from_item
 
@@ -41,6 +41,7 @@ def build_run_result(
     state: StreamState,
     wall_time_seconds: float,
     stream_detected_skill: SkillInvocation | None = None,
+    stream_detected_tool: str | None = None,
     raw_transcript_path: Path | None = None,
     user_prompt: str | None = None,
     model: str | None = None,
@@ -62,6 +63,7 @@ def build_run_result(
                 state,
                 wall_time_seconds=wall_time_seconds,
                 stream_detected_skill=stream_detected_skill,
+                stream_detected_tool=stream_detected_tool,
                 raw_transcript_path=raw_transcript_path,
                 user_prompt=user_prompt,
                 model=model,
@@ -75,6 +77,8 @@ def build_run_result(
         )
 
     trajectory = session.trajectory
+    if stream_detected_tool is not None:
+        record_detected_tool(trajectory, stream_detected_tool)
     _attach_session_skill_invocations(trajectory)
     stream_invocations = _extract_stream_skill_invocations(
         state.events, stream_detected_skill
@@ -98,6 +102,7 @@ def _build_minimal_trigger_result(
     state: StreamState,
     wall_time_seconds: float,
     stream_detected_skill: SkillInvocation | None,
+    stream_detected_tool: str | None,
     raw_transcript_path: Path | None,
     user_prompt: str | None,
     model: str | None,
@@ -119,6 +124,8 @@ def _build_minimal_trigger_result(
             skill_invocations=invocations,
         )
     )
+    if stream_detected_tool is not None:
+        record_detected_tool(trajectory, stream_detected_tool)
 
     tokens = Tokens(
         input=state.input_tokens,
@@ -619,13 +626,30 @@ def _canonical_tool_call_payload(payload: dict) -> dict:
             "call_id": payload.get("call_id") or payload.get("id") or "",
         }
     if ptype == "custom_tool_call":
-        return {
-            "type": ptype,
-            "name": payload.get("name"),
-            "arguments": payload.get("input"),
-            "call_id": payload.get("call_id") or "",
-        }
-    return payload
+        return _with_namespace(
+            {
+                "type": ptype,
+                "name": payload.get("name"),
+                "arguments": payload.get("input"),
+                "call_id": payload.get("call_id") or "",
+                "namespace": payload.get("namespace"),
+            }
+        )
+    return _with_namespace(payload)
+
+
+def _with_namespace(payload: dict) -> dict:
+    """Qualify an MCP call with the server it belongs to.
+
+    Codex names the call after the tool alone (`search`) and keeps its
+    server in a separate `namespace` field (`mcp__files`); joining them is
+    what makes the call gradable as `mcp__files__search`.
+    """
+    namespace = payload.get("namespace")
+    name = payload.get("name")
+    if not isinstance(namespace, str) or not namespace or not isinstance(name, str):
+        return payload
+    return {**payload, "name": f"{namespace}__{name}"}
 
 
 def _web_search_tool_call(payload: dict, started_at: float | None) -> ToolCallBlock:

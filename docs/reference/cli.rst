@@ -61,9 +61,14 @@ reserved verb is treated as a suite spec and dispatched to ``run``, so
     harness runs as a plain agent. Same semantics otherwise. Mutually exclusive
     with ``--without-skill``.
 
+``--no-mcp``
+    Reality-check mode with the skills in place but no MCP server attached, so
+    what the servers were doing for the suite shows up as the difference. Exits
+    0 whatever the verdicts. Refused when no server is declared.
+
 ``--no-triggers``
-    Skip ``kind: trigger`` tasks and run only execute tasks. Implied by both
-    reality-check modes; pass it explicitly on a normal run to produce a
+    Skip ``kind: trigger`` tasks and run only execute tasks. Implied by the two
+    skill-withholding modes; pass it explicitly on a normal run to produce a
     with-skill run over the same task set for comparison.
 
 ``--tag <name>``
@@ -90,9 +95,9 @@ and so does ``config.tasks_excluded_by_tag`` in the run's :file:`run.json`.
 
     agent-exam runs
 
-One row per run, newest first: run id, age, mode (``run``, ``without-skill`` or
-``no-skills``), the pass/fail/known-issue/timeout tally, total cost and
-duration.
+One row per run, newest first: run id, age, mode (``run``, ``without-skill``,
+``no-skills`` or ``no-mcp``), the pass/fail/known-issue/timeout tally, total
+cost and duration.
 
 ``--limit <int>``
     Maximum rows to show. Defaults to 20.

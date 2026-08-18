@@ -281,6 +281,12 @@ with-skill run so it covers exactly the same task set:
 ``--no-triggers`` on its own is just the trigger filter: normal run mode
 otherwise, skills staged, verdicts still gating the exit code.
 
+``--no-mcp`` asks the same question about the other half of the setup: the
+skills stay staged, but none of the declared :ref:`MCP servers <mcp-servers>`
+is attached, so whatever the servers were doing for the suite shows up as the
+difference. Trigger tasks still run — a skill can route without its tools — and
+the run exits 0 like the other reality checks.
+
 Caveats for fast loops
 ======================
 

@@ -101,6 +101,30 @@ The negatives are the valuable part — they tune description precision. Do
 trigger and teach the description nothing. Save the negative slots for
 near-misses that share real domain language.
 
+Triggering a tool instead of a skill
+====================================
+
+Swap ``skill:`` for ``tool:`` when the routing decision under test is a tool
+call — an :ref:`MCP server's <mcp-servers>` tool, typically, where the thing
+being evaluated is the tool description rather than a skill of yours.
+
+.. code-block:: yaml
+
+    kind: trigger
+    tool: mcp__files__search   # the tool expected to be called (or not)
+
+    positive:
+      - Find the invoice we sent in March.
+
+    negative:
+      - What does an invoice number look like?
+
+Cases fan out as before, graded with ``tool_called`` and ``tool_not_called``.
+Every harness cuts the attempt on the target call and records it. Claude Code
+and Copilot CLI see the call announced before it runs; Codex CLI cuts as it
+starts and OpenCode once it is over, so on those two the tool does run — keep
+that in mind for a tool with side effects.
+
 Author bias is a real problem
 =============================
 

@@ -366,4 +366,46 @@ def validate_suite(
             )
         )
 
+    # A task can only attach servers config.yaml declares. A typo would
+    # otherwise leave the agent quietly short of the tools the task is
+    # about, which reads as the skill failing.
+    undeclared_servers = sorted(
+        {
+            name
+            for t in tasks
+            for name in (t.mcp_servers or ())
+            if name not in cfg.mcp_servers
+        }
+    )
+    if undeclared_servers:
+        results.append(
+            CheckResult(
+                name=f"{suite}: mcp servers declared",
+                status="FAIL",
+                hint=(
+                    f"not in config.yaml mcp_servers: {', '.join(undeclared_servers)}"
+                ),
+            )
+        )
+
+    # A trigger aimed at a tool of a server nobody declares can never fire,
+    # so every one of its positive cases would fail as a routing miss.
+    unreachable = sorted(
+        {
+            t.target_tool
+            for t in tasks
+            if t.target_tool
+            and t.target_tool.startswith("mcp__")
+            and t.target_tool.split("__")[1] not in cfg.mcp_servers
+        }
+    )
+    if unreachable:
+        results.append(
+            CheckResult(
+                name=f"{suite}: trigger tools reachable",
+                status="FAIL",
+                hint=("no mcp_servers entry serves: " + ", ".join(unreachable)),
+            )
+        )
+
     return results

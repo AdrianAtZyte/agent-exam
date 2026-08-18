@@ -16,6 +16,7 @@ from pydantic import BaseModel, field_validator
 
 from ..._models import _StrictModel
 from ...errors import FrameworkError, ProviderTimeout, UsageError
+from ...mcp import resolve_servers
 from ...ratelimit import with_retries
 from ...schemas import CheckResult, RunResult
 from ..base import Provider
@@ -73,6 +74,7 @@ class CodexCliProvider(Provider):
     name = "codex_cli"
     safe_judge_tools = ("command_execution",)
     omitted_model_label = "Codex CLI default model"
+    supports_tool_triggers: ClassVar[bool] = True
     task_config_model: ClassVar[type[BaseModel]] = CodexCliTaskConfig
 
     def task_options(
@@ -155,6 +157,7 @@ class CodexCliProvider(Provider):
         state = StreamState()
         if stop_on_first_skill:
             state.skill_detection_enabled = True
+            state.target_tool = provider_options.get("target_tool")
             state.negative_trigger_mode = bool(provider_options.get("negative_trigger"))
 
         t_out = threading.Thread(
@@ -235,6 +238,7 @@ class CodexCliProvider(Provider):
             state,
             wall_time_seconds=wall_time,
             stream_detected_skill=state.detected_skill,
+            stream_detected_tool=state.detected_tool,
             raw_transcript_path=raw_path,
             user_prompt=prompt,
             model=model,
@@ -298,6 +302,10 @@ class CodexCliProvider(Provider):
                 )
         if restricted_tools:
             config_overrides.setdefault("web_search", "disabled")
+        if provider_options.get("mcp_servers"):
+            config_overrides = _deep_merge(
+                {"mcp_servers": provider_options["mcp_servers"]}, config_overrides
+            )
         if provider_options.get("trust_project_config"):
             config_overrides = _deep_merge(
                 config_overrides,
@@ -319,6 +327,29 @@ class CodexCliProvider(Provider):
         cmd.append("--")
         cmd.append(prompt)
         return cmd
+
+    def stage_mcp_config(self, run_tmp_root: Path, cfg, servers=None) -> dict:
+        """Translate the servers into the `mcp_servers` table Codex takes as
+        `-c` overrides. Codex has no place for per-request HTTP headers, so a
+        server that needs them cannot run here.
+        """
+        table: dict[str, dict] = {}
+        for name, server in resolve_servers(cfg, servers).items():
+            if "url" not in server:
+                table[name] = {
+                    k: v for k, v in server.items() if k in ("command", "args", "env")
+                }
+                continue
+            if server.get("headers"):
+                raise UsageError(
+                    f"mcp_servers.{name}: codex_cli cannot pass headers to an "
+                    "HTTP MCP server; scope the task with `providers:` or drop "
+                    "the headers"
+                )
+            table[name] = {"url": server["url"]}
+        if not table:
+            return {}
+        return {"mcp_servers": table}
 
     def _prepare_prefix_rules(self, cwd: Path, provider_options: dict) -> dict:
         prefix_rules = provider_options.get("prefix_rules")

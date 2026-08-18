@@ -23,12 +23,23 @@ class StreamState:
     result_error: str | None = None
     stderr_tail: deque = field(default_factory=lambda: deque(maxlen=8192))
 
+    # MCP server name -> connection status, from the `system/init` event.
+    # A server that fails to start leaves the agent without its tools and
+    # nothing else says so; doctor reports it (see `mcp.connection_check`).
+    mcp_servers: dict[str, str] | None = None
+
     # Skill-detection fields (driven by drain_stream when
     # skill_detection_enabled=True). `kill_signal` fires on a match so the
     # provider's main thread can terminate the subprocess early.
     skill_detection_enabled: bool = False
     target_skill: str | None = None  # None = fire on any skill
     detected_skill: SkillInvocation | None = None
+    # Set for a trigger task whose target is a tool rather than a skill:
+    # the run is cut on that tool's `tool_use` instead of on a skill fire,
+    # and `detected_tool` records it, since the kill lands before Claude
+    # Code writes the call to the transcript.
+    target_tool: str | None = None
+    detected_tool: str | None = None
     kill_signal: threading.Event = field(default_factory=threading.Event)
 
     # Negative-trigger mode: for cases where the skill is expected NOT
@@ -78,7 +89,15 @@ def _dispatch(line: str, state: StreamState) -> None:
     sid = event.get("session_id")
     if sid and state.session_id is None:
         state.session_id = sid
-    if event.get("type") == "result":
+    if event.get("type") == "system" and event.get("subtype") == "init":
+        servers = event.get("mcp_servers")
+        if isinstance(servers, list):
+            state.mcp_servers = {
+                str(s.get("name")): str(s.get("status"))
+                for s in servers
+                if isinstance(s, dict) and s.get("name")
+            }
+    elif event.get("type") == "result":
         state.total_cost_usd = event.get("total_cost_usd")
         state.result_is_error = bool(event.get("is_error"))
         state.result_subtype = event.get("subtype")
@@ -98,7 +117,13 @@ def _dispatch_skill_detection(se: dict, state: StreamState) -> None:
         cb = se.get("content_block") or {}
         if cb.get("type") == "tool_use":
             name = cb.get("name", "")
-            if name in ("Skill", "Read"):
+            if state.target_tool:
+                if name == state.target_tool:
+                    state.detected_tool = name
+                    state.kill_signal.set()
+                elif state.negative_trigger_mode:
+                    state.kill_signal.set()
+            elif name in ("Skill", "Read"):
                 state._cur_tool_name = name
                 state._cur_tool_use_id = cb.get("id", "")
                 state._cur_accumulated = ""
@@ -139,5 +164,6 @@ def _dispatch_skill_detection(se: dict, state: StreamState) -> None:
             state.negative_trigger_mode
             and se_type == "message_stop"
             and state.detected_skill is None
+            and state.detected_tool is None
         ):
             state.kill_signal.set()

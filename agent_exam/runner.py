@@ -20,6 +20,7 @@ from .errors import ProviderTimeout, RateLimitExhausted, UsageError
 from .hooks import call_pre_run_hook
 from .ids import new_run_id
 from .judge import JudgeCache, JudgeCall
+from .mcp import preflight as mcp_preflight
 from .pool import AttemptOutcome, PoolPlan, run_plan
 from .providers import get_provider
 from .providers.skill_staging import discover_skills
@@ -45,9 +46,12 @@ class RunRequest:
     # Reality-check with *every* skill dropped, not just the suite's
     # evaluated ones — the harness runs as a plain agent.
     no_skills: bool = False
-    # Drop `kind: trigger` tasks from the plan. Implied by the reality-check
-    # modes (no skill loaded → nothing to fire); settable on its own so the
-    # with-skill half of a reality-check comparison covers the same tasks.
+    # Reality-check with the skills in place but no MCP server attached —
+    # the counterfactual that shows how much of the work the servers do.
+    no_mcp: bool = False
+    # Drop `kind: trigger` tasks from the plan. Implied by the skill-
+    # withholding modes (no skill loaded → nothing to fire); settable on its
+    # own so the with-skill half of the comparison covers the same tasks.
     no_triggers: bool = False
     # Tag selection. `tags` (--tag) lifts a tag's default exclusion,
     # `exclude_tags` (--exclude-tag) drops the tasks wearing one, and
@@ -70,6 +74,12 @@ class RunRequest:
     def reality_check(self) -> bool:
         """True when skills are (partly or wholly) withheld from the harness."""
         return self.without_skill or self.no_skills
+
+    @property
+    def informational(self) -> bool:
+        """True when the run withholds something the suite is meant to have,
+        so its verdicts describe a counterfactual rather than a regression."""
+        return self.reality_check or self.no_mcp
 
 
 def _utc_now_iso() -> str:
@@ -360,6 +370,17 @@ def run(cfg: Config, req: RunRequest) -> int:
             + "\n  ".join(f"{c.name}: {c.hint}" for c in validation_fails)
         )
 
+    if req.no_mcp:
+        if not cfg.mcp_servers:
+            raise UsageError(
+                "--no-mcp: no mcp_servers are declared in evals/config.yaml, "
+                "so the run would be identical to a normal one"
+            )
+        # Detaching every server is the same thing as declaring none, so
+        # staging, the preflight checks and the reports all follow without
+        # a second code path. Task selections are already validated above.
+        cfg = cfg.model_copy(update={"mcp_servers": {}})
+
     paths = RunPaths(cfg.evals_dir, new_run_id(cfg.evals_dir / "runs"))
     paths.run_dir.mkdir(parents=True)
     paths.reports_dir.mkdir()
@@ -400,6 +421,8 @@ def run(cfg: Config, req: RunRequest) -> int:
         run_mode = run_modes.NO_SKILLS
     elif req.without_skill:
         run_mode = run_modes.WITHOUT_SKILL
+    elif req.no_mcp:
+        run_mode = run_modes.NO_MCP
     else:
         run_mode = run_modes.NORMAL
 
@@ -439,6 +462,19 @@ def run(cfg: Config, req: RunRequest) -> int:
     # provider-agnostic — each provider owns its own check set.
     for warning in provider.pre_run_warnings(cfg):
         _emit_warning(warning)
+
+    # MCP servers whose command or credentials can't be resolved would only
+    # surface as the agent silently missing its tools, so refuse the run.
+    mcp_checks = mcp_preflight(cfg, provider)
+    mcp_fails = [c for c in mcp_checks if c.status == "FAIL"]
+    if mcp_fails:
+        raise UsageError(
+            "mcp_servers are not usable:\n  "
+            + "\n  ".join(f"{c.name}: {c.hint}" for c in mcp_fails)
+        )
+    for warning in mcp_checks:
+        if warning.status == "WARN":
+            _emit_warning(warning)
 
     _emit_run_header(
         paths.run_id, req, plan, model, effective_k, concrete, tags_excluded
@@ -544,6 +580,7 @@ def run(cfg: Config, req: RunRequest) -> int:
                 "n_parallel": plan.n_parallel,
                 "without_skill": req.without_skill,
                 "no_skills": req.no_skills,
+                "no_mcp": req.no_mcp,
                 "no_triggers": drop_triggers,
                 "skills_excluded": sorted(skills_to_exclude),
                 "tags": sorted(req.tags),
@@ -563,7 +600,7 @@ def run(cfg: Config, req: RunRequest) -> int:
     # Reality-check runs are informational — don't translate assertion
     # failures into a non-zero exit code. Framework errors would have
     # bubbled up before this point.
-    if req.reality_check:
+    if req.informational:
         return 0
     # Known-issue outcomes don't gate the suite: the whole point of the
     # annotation is to land a failing check without failing the run.

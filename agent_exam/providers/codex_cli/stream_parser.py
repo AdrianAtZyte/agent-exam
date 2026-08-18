@@ -47,6 +47,12 @@ class StreamState:
     kill_signal: threading.Event = field(default_factory=threading.Event)
     negative_trigger_mode: bool = False
 
+    # Tool-targeted trigger: the canonical name of the tool the run is cut
+    # on. `detected_tool` holds the spelling Codex's session transcript
+    # uses for it.
+    target_tool: str | None = None
+    detected_tool: str | None = None
+
 
 def drain_stream(
     stdout: IO[bytes],
@@ -165,16 +171,22 @@ def _unwrap_error_json(message: str) -> str:
 
 
 def _dispatch_skill_detection(item: dict, state: StreamState) -> None:
-    detected = _skill_detection_from_item(item)
-    if detected:
-        skill, trigger_kind = detected
-        state.detected_skill = SkillInvocation(
-            skill_name=skill,
-            trigger_kind=trigger_kind,
-            triggered_by_tool_use_id=item.get("id"),
-        )
-        state.kill_signal.set()
-        return
+    if state.target_tool:
+        if _tool_name_from_item(item) == state.target_tool:
+            state.detected_tool = state.target_tool
+            state.kill_signal.set()
+            return
+    else:
+        detected = _skill_detection_from_item(item)
+        if detected:
+            skill, trigger_kind = detected
+            state.detected_skill = SkillInvocation(
+                skill_name=skill,
+                trigger_kind=trigger_kind,
+                triggered_by_tool_use_id=item.get("id"),
+            )
+            state.kill_signal.set()
+            return
 
     # For negative triggers, non-skill tool work is enough evidence that
     # routing went elsewhere. Plain text alone is not decisive. Reader
@@ -192,6 +204,24 @@ def _dispatch_skill_detection(item: dict, state: StreamState) -> None:
         item_type == "command_execution" and not _item_is_file_read(item)
     ) or item_type in ("web_search", "file_change", "mcp_tool_call"):
         state.kill_signal.set()
+
+
+def _tool_name_from_item(item: dict) -> str | None:
+    """The name of the tool call *item* is, if it is one.
+
+    An MCP call names its server and tool separately, spelling out the same
+    name the session transcript gives it; Codex's own tools are named after
+    the item type.
+    """
+    item_type = item.get("type")
+    if item_type == "mcp_tool_call":
+        server, tool = item.get("server"), item.get("tool")
+        if isinstance(server, str) and isinstance(tool, str):
+            return f"mcp__{server}__{tool}"
+        return None
+    if item_type in ("command_execution", "web_search"):
+        return item_type
+    return None
 
 
 def _item_is_file_read(item: dict) -> bool:

@@ -9,10 +9,12 @@ from typing import TYPE_CHECKING, ClassVar
 
 from ..._models import _StrictModel
 from ...errors import FrameworkError, ProviderTimeout
+from ...mcp import render_mcp_json, resolve_servers
 from ...ratelimit import with_retries
 from ..base import Provider
 from ..child_env import build_child_env
 from ..process_utils import terminate_tree
+from .doctor_probes import personal_mcp_servers
 from .stream_parser import StreamState, drain_stderr, drain_stream
 from .transcripts import build_run_result
 
@@ -37,6 +39,7 @@ class CopilotCliProvider(Provider):
     # `--allow-tool` values.
     safe_judge_tools = ("view", "glob", "grep")
     task_config_model: ClassVar[type[BaseModel]] = CopilotCliTaskConfig
+    supports_tool_triggers: ClassVar[bool] = True
 
     def task_options(
         self, task_cfg: CopilotCliTaskConfig | None, framework_cfg, task_kind: str
@@ -85,6 +88,20 @@ class CopilotCliProvider(Provider):
         if model:
             cmd.extend(["--model", model])
 
+        # `--additional-mcp-config` augments the built-in servers and
+        # `~/.copilot/mcp-config.json` rather than replacing them, and there
+        # is no strict counterpart, so both sets are turned off by hand —
+        # the developer's own servers would otherwise compete for tool calls
+        # with the ones under evaluation.
+        cmd.append("--disable-builtin-mcps")
+        attached = set(provider_options.get("mcp_server_names") or ())
+        for name in personal_mcp_servers():
+            if name not in attached:
+                cmd.extend(["--disable-mcp-server", name])
+        mcp_config = provider_options.get("mcp_config_path")
+        if mcp_config:
+            cmd.extend(["--additional-mcp-config", f"@{mcp_config}"])
+
         # Per-task tool restriction: if `allowed_tools` is provided, restrict
         # the model to exactly those tools (plus skill + report_intent which are
         # always needed) using --available-tools and --allow-tool.  The model
@@ -132,6 +149,8 @@ class CopilotCliProvider(Provider):
         if stop_on_first_skill:
             state.skill_detection_enabled = True
             state.target_skill = provider_options.get("target_skill")
+            state.target_tool = provider_options.get("target_tool")
+            state.mcp_servers = tuple(provider_options.get("mcp_server_names") or ())
             state.negative_trigger_mode = bool(provider_options.get("negative_trigger"))
 
         t_out = threading.Thread(
@@ -225,6 +244,16 @@ class CopilotCliProvider(Provider):
             skill_roots.extend(installed_plugins.glob("*/*/skills"))
 
         return [name for name, _ in discover_skills(skill_roots)]
+
+    def stage_mcp_config(self, run_tmp_root: Path, cfg, servers=None) -> dict:
+        """Render `{"mcpServers": ...}` for `--additional-mcp-config`."""
+        resolved = resolve_servers(cfg, servers)
+        if not resolved:
+            return {}
+        return {
+            "mcp_config_path": render_mcp_json(run_tmp_root, resolved),
+            "mcp_server_names": sorted(resolved),
+        }
 
     def preflight(self, cfg=None) -> list[CheckResult]:
         """Binary version check + personal-skills leak warning."""

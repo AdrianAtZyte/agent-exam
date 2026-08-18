@@ -48,6 +48,12 @@ class Provider:
     #: is not an allowlist should override :meth:`judge_agent_options`.
     safe_judge_tools: tuple[str, ...] = ()
 
+    supports_tool_triggers: ClassVar[bool] = False
+    """Whether this harness can cut a `kind: trigger` task short on the
+    task's target *tool* (as opposed to its target skill), keeping the call
+    in the trajectory. See `stage_mcp_config` for the servers those tools
+    come from."""
+
     #: Human-readable model source used when ``invoke(..., model="")``
     #: intentionally omits the provider's model flag. ``None`` means doctor
     #: should not run LLM probes without an explicit configured model.
@@ -143,7 +149,8 @@ class Provider:
         with other skills and tools.
 
         Cross-cutting options (env_overrides, extra_args, target_skill,
-        negative_trigger) are pool.py's concern, not this method's.
+        target_tool, negative_trigger) are pool.py's concern, not this
+        method's.
 
         Default: no per-provider options.
         """
@@ -168,3 +175,24 @@ class Provider:
             self.skills_rel_path,
             exclude=skills_to_exclude,
         )
+
+    def stage_mcp_config(
+        self,
+        run_tmp_root: Path,
+        cfg: Config,
+        servers: list[str] | None = None,
+    ) -> dict:
+        """Attach the configured MCP servers and return the provider options
+        that do it — merged into the dict :meth:`invoke` consumes.
+
+        *servers* names the subset of ``cfg.mcp_servers`` this task wants;
+        ``None`` means all of them. Any file a harness needs is rendered
+        under *run_tmp_root*, which is the parent of the attempt's cwd —
+        never inside it, since the cwd is archived into the run's artifacts
+        and a server block can hold a credential.
+
+        The default attaches nothing, so a harness without MCP support needs
+        no code; :py:func:`agent_exam.mcp.preflight` warns when a run
+        configures servers such a harness will ignore.
+        """
+        return {}
