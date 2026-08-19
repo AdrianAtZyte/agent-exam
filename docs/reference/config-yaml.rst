@@ -315,6 +315,9 @@ the standard MCP JSON, so a block copies over from the server's README:
         headers:
           Authorization: "Bearer ${TICKETS_TOKEN}"
 
+A remote server needs only its ``url``; ``type`` is ``http`` unless the server
+speaks ``sse``.
+
 ``${VAR}`` in an ``env`` or ``headers`` value is substituted from the
 environment agent-exam itself runs in, so credentials stay out of the file. A
 variable that is not set fails the run at its start, before any trial — only

@@ -124,16 +124,18 @@ class McpStdioServer(_StrictModel):
 
 
 class McpHttpServer(_StrictModel):
-    """An HTTP or SSE MCP server entry under `mcp_servers:`."""
+    """An HTTP or SSE MCP server entry under `mcp_servers:`. `type` defaults
+    to `http`, the transport a bare `{url: ...}` block means.
+    """
 
-    type: Literal["http", "sse"]
+    type: Literal["http", "sse"] = "http"
     url: str
     headers: dict[str, str] = Field(default_factory=dict)
 
 
 #: One entry under `mcp_servers:`. A plain union rather than a discriminated
-#: one: the stdio shape carries no `type` in the MCP JSON everyone
-#: copy-pastes, and the two branches are told apart by `command` vs `url`.
+#: one: `type` is optional in the MCP JSON everyone copy-pastes, so the two
+#: branches are told apart by `command` vs `url`.
 McpServerConfig = McpStdioServer | McpHttpServer
 
 

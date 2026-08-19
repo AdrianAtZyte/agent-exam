@@ -53,6 +53,21 @@ def test_config_parses_both_server_shapes(tmp_path):
     assert cfg.mcp_servers["remote"].url == "https://example.test/mcp"
 
 
+def test_config_defaults_a_url_only_server_to_http(tmp_path):
+    root = _project(
+        tmp_path,
+        """\
+        mcp_servers:
+          remote:
+            url: https://example.test/mcp
+        """,
+    )
+    cfg = load_config(root)
+
+    assert cfg.mcp_servers["remote"] == McpHttpServer(url="https://example.test/mcp")
+    assert resolve_servers(cfg)["remote"]["type"] == "http"
+
+
 def test_config_rejects_unknown_server_key(tmp_path):
     root = _project(
         tmp_path,
