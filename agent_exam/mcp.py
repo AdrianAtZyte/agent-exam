@@ -46,7 +46,7 @@ def _env_refs(value: str) -> list[str]:
 def _selected(cfg: Config, names: list[str] | None) -> dict:
     if names is None:
         return dict(cfg.mcp_servers)
-    return {name: cfg.mcp_servers[name] for name in names if name in cfg.mcp_servers}
+    return {name: cfg.mcp_servers[name] for name in names}
 
 
 def resolve_servers(cfg: Config, names: list[str] | None = None) -> dict[str, dict]:

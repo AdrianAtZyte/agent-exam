@@ -184,10 +184,6 @@ def _execute_attempt(
     stop_early = task.stop_on_first_skill
     if task.target_tool:
         provider_options["target_tool"] = task.target_tool
-        # A harness that doesn't watch for the tool itself would cut the
-        # attempt on the first skill fire instead, throwing away the very
-        # call the assertion grades on; it runs the turn out instead.
-        stop_early = provider.supports_tool_triggers
     if task.should_trigger is False:
         # Negative trigger case: signal the provider to cut early once
         # the routing decision is evident. For a skill target that is the
@@ -337,6 +333,11 @@ def _execute_attempt(
                 "finished_at": attempt_finished,
                 "raw_transcript_path": str(raw_path) if raw_path else None,
                 "metrics": to_json_dict(run_result.metrics),
+                # Names this attempt attached, against the connection status
+                # the harness announced for them.
+                "mcp_servers_attached": list(
+                    provider_options.get("mcp_server_names") or ()
+                ),
                 "mcp_servers": run_result.mcp_servers,
             },
         )

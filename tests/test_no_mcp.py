@@ -82,6 +82,31 @@ def test_a_normal_run_still_attaches_them(tmp_path, monkeypatch):
     run_json = json.loads((run_dir / "run.json").read_text())
     assert run_json["run_mode"] == "run"
     assert list(Path(run_json["config"]["tmp_root"]).glob("*.mcp.json"))
+    # What ran is readable back from the artifacts alone.
+    assert run_json["config"]["mcp_servers"] == ["files"]
+    attempt = json.loads(
+        (run_dir / "artifacts" / "s" / "t" / "attempt-1" / "attempt.json").read_text()
+    )
+    assert attempt["mcp_servers_attached"] == ["files"]
+
+
+def test_a_task_selecting_a_server_by_name_still_runs(tmp_path, monkeypatch):
+    """`--no-mcp` drops the definitions; a selection naming one must go too."""
+    root = _project(tmp_path)
+    (root / "evals" / "suites" / "s" / "tasks" / "t.yaml").write_text(
+        "kind: execute\nprompt: x\nmcp_servers: [files]\nassertions: []\n"
+    )
+    monkeypatch.setattr(
+        "agent_exam.providers.dummy.DummyProvider.stage_mcp_config",
+        ClaudeCodeProvider.stage_mcp_config,
+        raising=False,
+    )
+
+    assert run(load_config(root), _req(no_mcp=True)) == 0
+
+    run_dir = next(iter((root / "evals" / "runs").iterdir()))
+    run_json = json.loads((run_dir / "run.json").read_text())
+    assert not list(Path(run_json["config"]["tmp_root"]).glob("*.mcp.json"))
 
 
 def test_detaching_nothing_is_refused(tmp_path):

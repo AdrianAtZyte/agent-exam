@@ -48,12 +48,6 @@ class Provider:
     #: is not an allowlist should override :meth:`judge_agent_options`.
     safe_judge_tools: tuple[str, ...] = ()
 
-    supports_tool_triggers: ClassVar[bool] = False
-    """Whether this harness can cut a `kind: trigger` task short on the
-    task's target *tool* (as opposed to its target skill), keeping the call
-    in the trajectory. See `stage_mcp_config` for the servers those tools
-    come from."""
-
     #: Human-readable model source used when ``invoke(..., model="")``
     #: intentionally omits the provider's model flag. ``None`` means doctor
     #: should not run LLM probes without an explicit configured model.

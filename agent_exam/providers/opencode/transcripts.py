@@ -71,7 +71,7 @@ def build_run_result(
     # OpenCode reports an MCP call as one `<server>_<tool>` string and
     # nothing else, so the server has to be matched back out of it. After
     # the subagent turns are in, so their calls are named the same way.
-    canonicalize_tool_names(trajectory, state.mcp_servers)
+    canonicalize_tool_names(trajectory, state.mcp_server_names)
     skill_invocations = _extract_skill_invocations(
         trajectory, stream_detected_skill, state.provider
     )

@@ -199,16 +199,6 @@ def _run_a_tool_trigger(tmp_path, monkeypatch) -> list[dict]:
     return calls
 
 
-def test_a_harness_that_cannot_watch_for_the_tool_runs_the_turn_out(
-    tmp_path, monkeypatch
-):
-    """Cutting on the first skill fire instead would throw away the call the
-    assertion grades on."""
-    calls = _run_a_tool_trigger(tmp_path, monkeypatch)
-
-    assert [c["stop_on_first_skill"] for c in calls] == [False]
-
-
 def test_a_tool_case_gets_the_whole_task_budget(tmp_path, monkeypatch):
     """The 60-second trigger default assumes a skill fires immediately. Here
     the agent looks around first, and a booting stdio server eats into it."""
@@ -257,7 +247,7 @@ def test_copilot_negative_case_does_not_settle_on_the_first_message():
     state = CopilotState(provider=CopilotCliProvider())
     state.skill_detection_enabled = True
     state.target_tool = _TARGET
-    state.mcp_servers = ("files",)
+    state.mcp_server_names = ("files",)
     state.negative_trigger_mode = True
 
     copilot(
@@ -323,7 +313,7 @@ def test_opencode_records_the_call_its_database_may_not_have():
     from agent_exam.providers.opencode.transcripts import build_run_result
 
     state = StreamState(provider=DummyProvider())
-    state.mcp_servers = ("files",)
+    state.mcp_server_names = ("files",)
 
     result = build_run_result(
         state,
@@ -362,7 +352,7 @@ def test_copilot_cuts_a_positive_case_on_another_servers_tool():
     state = CopilotState(provider=CopilotCliProvider())
     state.skill_detection_enabled = True
     state.target_tool = _TARGET
-    state.mcp_servers = ("files", "notes")
+    state.mcp_server_names = ("files", "notes")
 
     copilot(
         json.dumps(
@@ -393,7 +383,7 @@ def test_opencode_cuts_a_positive_case_on_another_servers_tool():
     state = OpenCodeState(provider=DummyProvider())
     state.skill_detection_enabled = True
     state.target_tool = _TARGET
-    state.mcp_servers = ("files", "notes")
+    state.mcp_server_names = ("files", "notes")
 
     opencode(
         json.dumps(

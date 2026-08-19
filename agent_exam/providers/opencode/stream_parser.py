@@ -32,7 +32,7 @@ class StreamState:
     # matched through. `detected_tool` holds the spelling OpenCode used.
     target_tool: str | None = None
     detected_tool: str | None = None
-    mcp_servers: tuple[str, ...] = ()
+    mcp_server_names: tuple[str, ...] = ()
 
     # Negative-trigger mode: for cases where the skill is expected NOT
     # to fire, the routing decision is settled as soon as the agent
@@ -109,7 +109,7 @@ def _dispatch_skill_detection(part: dict, state: StreamState) -> None:
         # the kill lands on the finished call and saves the rest of the turn
         # rather than the call itself.
         if isinstance(tool, str) and settles_tool_trigger(
-            canonical_tool_name(tool, state.mcp_servers),
+            canonical_tool_name(tool, state.mcp_server_names),
             state.target_tool,
             state.negative_trigger_mode,
         ):

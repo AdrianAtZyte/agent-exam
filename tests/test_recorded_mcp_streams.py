@@ -73,7 +73,7 @@ def test_opencode_cuts_on_the_tool_part():
     state = StreamState(provider=DummyProvider())
     state.skill_detection_enabled = True
     state.target_tool = _TARGET
-    state.mcp_servers = ("files",)
+    state.mcp_server_names = ("files",)
 
     for line in _lines("opencode_mcp_stream.jsonl"):
         _dispatch(line, state)

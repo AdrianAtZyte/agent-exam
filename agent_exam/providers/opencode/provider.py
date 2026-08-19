@@ -76,7 +76,6 @@ class OpenCodeProvider(Provider):
     safe_judge_tools = ("read", "glob", "grep")
     skills_rel_path: ClassVar[str] = ".opencode/skills"
     task_config_model: ClassVar[type[BaseModel]] = OpenCodeTaskConfig
-    supports_tool_triggers: ClassVar[bool] = True
 
     def task_options(
         self, task_cfg: OpenCodeTaskConfig | None, framework_cfg, task_kind: str
@@ -159,7 +158,7 @@ class OpenCodeProvider(Provider):
         state = StreamState(provider=self)
         # Needed whether or not the run is cut short: the trajectory is
         # named after these too, not just the kill decision.
-        state.mcp_servers = tuple(provider_options.get("mcp_server_names") or ())
+        state.mcp_server_names = tuple(provider_options.get("mcp_server_names") or ())
         if stop_on_first_skill:
             state.skill_detection_enabled = True
             state.target_skill = provider_options.get("target_skill")

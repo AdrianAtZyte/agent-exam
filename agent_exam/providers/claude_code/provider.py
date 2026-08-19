@@ -43,7 +43,6 @@ class ClaudeCodeProvider(Provider):
     safe_judge_tools = ("Read", "Glob", "Grep")
     skills_rel_path: ClassVar[str] = ".claude/skills"
     task_config_model: ClassVar[type[BaseModel]] = ClaudeCodeTaskConfig
-    supports_tool_triggers: ClassVar[bool] = True
 
     def task_options(
         self, task_cfg: ClaudeCodeTaskConfig | None, framework_cfg, task_kind: str

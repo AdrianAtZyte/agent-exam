@@ -74,7 +74,6 @@ class CodexCliProvider(Provider):
     name = "codex_cli"
     safe_judge_tools = ("command_execution",)
     omitted_model_label = "Codex CLI default model"
-    supports_tool_triggers: ClassVar[bool] = True
     task_config_model: ClassVar[type[BaseModel]] = CodexCliTaskConfig
 
     def task_options(
@@ -357,7 +356,10 @@ class CodexCliProvider(Provider):
             table[name] = {"url": server["url"]}
         if not table:
             return {}
-        return {"codex_home": str(_stage_codex_home(run_tmp_root, table))}
+        return {
+            "codex_home": str(_stage_codex_home(run_tmp_root, table)),
+            "mcp_server_names": sorted(table),
+        }
 
     def _prepare_prefix_rules(self, cwd: Path, provider_options: dict) -> dict:
         prefix_rules = provider_options.get("prefix_rules")

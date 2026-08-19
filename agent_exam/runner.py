@@ -6,7 +6,7 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -383,8 +383,10 @@ def run(cfg: Config, req: RunRequest) -> int:
         # A tool trigger grades on MCP calls, which cannot happen with no
         # server attached: the positives fail and the negatives pass on an
         # empty trajectory. Skill triggers stay — routing does not need the
-        # tools it routes to.
-        tasks = [t for t in tasks if not t.target_tool]
+        # tools it routes to. What the survivors select is cleared along with
+        # the definitions, since a selection naming a server no longer in
+        # config.yaml is a load-time error everywhere else.
+        tasks = [replace(t, mcp_servers=[]) for t in tasks if not t.target_tool]
         if not tasks:
             specs_str = ", ".join(f"{s}::{t}" if t else s for s, t in req.specs)
             raise UsageError(
@@ -594,6 +596,7 @@ def run(cfg: Config, req: RunRequest) -> int:
                 "without_skill": req.without_skill,
                 "no_skills": req.no_skills,
                 "no_mcp": req.no_mcp,
+                "mcp_servers": sorted(cfg.mcp_servers),
                 "no_triggers": drop_triggers,
                 "skills_excluded": sorted(skills_to_exclude),
                 "tags": sorted(req.tags),
