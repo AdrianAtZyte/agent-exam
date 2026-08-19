@@ -32,6 +32,13 @@ def test_a_tool_of_no_configured_server_is_left_alone():
     assert canonical_tool_name("files_read", []) == "files_read"
 
 
+def test_a_native_tool_that_merely_starts_with_a_server_name_is_left_alone():
+    """The heuristic only fires on a separator, so OpenCode's own
+    `todowrite` survives a server named `todo`."""
+    assert canonical_tool_name("todowrite", ["todo"]) == "todowrite"
+    assert canonical_tool_name("webfetch", ["web"]) == "webfetch"
+
+
 def test_the_longest_matching_server_name_wins():
     assert (
         canonical_tool_name("files-archive_read", ["files", "files-archive"])
@@ -47,7 +54,7 @@ def test_renaming_reaches_subagent_calls():
                 _call("files_read"),
                 _call(
                     "task",
-                    subagent=[Turn(role="assistant", content=[_call("remote.search")])],
+                    subagent=[Turn(role="assistant", content=[_call("remote-search")])],
                 ),
             ],
         )

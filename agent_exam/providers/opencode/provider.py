@@ -156,11 +156,13 @@ class OpenCodeProvider(Provider):
         )
 
         state = StreamState(provider=self)
+        # Needed whether or not the run is cut short: the trajectory is
+        # named after these too, not just the kill decision.
+        state.mcp_servers = tuple(provider_options.get("mcp_server_names") or ())
         if stop_on_first_skill:
             state.skill_detection_enabled = True
             state.target_skill = provider_options.get("target_skill")
             state.target_tool = provider_options.get("target_tool")
-            state.mcp_servers = tuple(provider_options.get("mcp_server_names") or ())
             state.negative_trigger_mode = bool(provider_options.get("negative_trigger"))
 
         # Open raw stream file before the reader thread starts so every

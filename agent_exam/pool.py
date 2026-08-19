@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .errors import AgentExamError, ProviderTimeout, UsageError
-from .mcp import canonicalize_tool_names, selected_names
 from .providers import get_provider
 from .schemas import RunResult
 from .serde import to_json_dict, write_json
@@ -280,14 +279,6 @@ def _execute_attempt(
         run_result = exc.partial_run_result
         if _settled_on_timeout(task, run_result):
             error_verdict = None
-
-    # Every harness spells an MCP tool name its own way; the trajectory that
-    # reaches scoring and the archive uses one spelling, so a `tool_called:`
-    # line grades the same on all of them.
-    if run_result is not None and cfg.mcp_servers:
-        canonicalize_tool_names(
-            run_result.trajectory, selected_names(cfg, task.mcp_servers)
-        )
 
     attempt_finished = attempt_finished_writer()
 

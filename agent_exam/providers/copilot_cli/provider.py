@@ -150,7 +150,6 @@ class CopilotCliProvider(Provider):
             state.skill_detection_enabled = True
             state.target_skill = provider_options.get("target_skill")
             state.target_tool = provider_options.get("target_tool")
-            state.mcp_servers = tuple(provider_options.get("mcp_server_names") or ())
             state.negative_trigger_mode = bool(provider_options.get("negative_trigger"))
 
         t_out = threading.Thread(

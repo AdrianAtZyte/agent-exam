@@ -12,7 +12,6 @@ from agent_exam.assertions.first_tool import FirstToolConfig
 from agent_exam.assertions.first_tool import check as first_tool
 from agent_exam.config import DEFAULT_TASK_TIMEOUT, load_config
 from agent_exam.errors import UsageError
-from agent_exam.mcp import canonicalize_tool_names
 from agent_exam.providers.claude_code.stream_parser import StreamState, _dispatch
 from agent_exam.providers.dummy import DummyProvider
 from agent_exam.runner import RunRequest, run
@@ -244,12 +243,7 @@ def test_a_tool_of_an_undeclared_server_fails_validation(tmp_path):
 
 
 def _graded(result: RunResult) -> bool:
-    """Whether the generated positive assertion passes on *result*.
-
-    Goes through the canonicalization the pool applies, since each harness
-    spells an MCP tool its own way.
-    """
-    canonicalize_tool_names(result.trajectory, ["files"])
+    """Whether the generated positive assertion passes on *result*."""
     return first_tool(FirstToolConfig(name=_TARGET), result, Path()).pass_
 
 
@@ -328,8 +322,11 @@ def test_opencode_records_the_call_its_database_may_not_have():
     from agent_exam.providers.opencode.stream_parser import StreamState
     from agent_exam.providers.opencode.transcripts import build_run_result
 
+    state = StreamState(provider=DummyProvider())
+    state.mcp_servers = ("files",)
+
     result = build_run_result(
-        StreamState(provider=DummyProvider()),
+        state,
         wall_time_seconds=0.0,
         stream_detected_tool="files_search",
         user_prompt="Find the invoice for March.",

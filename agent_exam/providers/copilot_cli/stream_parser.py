@@ -7,9 +7,10 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import IO
 
-from ...mcp import canonical_tool_name, settles_tool_trigger
+from ...mcp import settles_tool_trigger
 from ...schemas import SkillInvocation
 from ..base import Provider
+from .transcripts import _request_tool_name
 
 
 @dataclass
@@ -34,11 +35,9 @@ class StreamState:
     kill_signal: threading.Event = field(default_factory=threading.Event)
 
     # Tool-targeted trigger: the canonical name of the tool the run is cut
-    # on, and the configured MCP server names its harness spelling is
-    # matched through. `detected_tool` holds the spelling Copilot used.
+    # on. `detected_tool` holds the spelling Copilot used.
     target_tool: str | None = None
     detected_tool: str | None = None
-    mcp_servers: tuple[str, ...] = ()
 
     # Negative-trigger mode: kill as soon as the routing decision is clear.
     # For Copilot CLI this is always at assistant.message time (tool calls are
@@ -167,18 +166,13 @@ def _check_tool_in_message(event: dict, state: StreamState) -> None:
 
     Copilot requests every tool of a turn in one message, before any of them
     runs, so the kill lands with the call already recorded in the stream the
-    trajectory is built from. An MCP request names its server and tool in
-    fields of their own, which beats splitting the joined name apart.
+    trajectory is built from.
     """
     for req in (event.get("data") or {}).get("toolRequests") or []:
         name = req.get("name")
         if not isinstance(name, str) or not name:
             continue
-        server, tool = req.get("mcpServerName"), req.get("mcpToolName")
-        if isinstance(server, str) and isinstance(tool, str):
-            canonical = f"mcp__{server}__{tool}"
-        else:
-            canonical = canonical_tool_name(name, state.mcp_servers)
+        canonical = _request_tool_name(req)
         if settles_tool_trigger(
             canonical, state.target_tool, state.negative_trigger_mode
         ):

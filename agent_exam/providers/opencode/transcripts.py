@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ...mcp import canonicalize_tool_names
 from ...schemas import (
     Metrics,
     RunResult,
@@ -67,6 +68,10 @@ def build_run_result(
     if stream_detected_tool is not None:
         record_detected_tool(trajectory, stream_detected_tool)
     subagent_metrics = _attach_subagents(trajectory, subagent_session_map)
+    # OpenCode reports an MCP call as one `<server>_<tool>` string and
+    # nothing else, so the server has to be matched back out of it. After
+    # the subagent turns are in, so their calls are named the same way.
+    canonicalize_tool_names(trajectory, state.mcp_servers)
     skill_invocations = _extract_skill_invocations(
         trajectory, stream_detected_skill, state.provider
     )

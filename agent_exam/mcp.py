@@ -48,11 +48,6 @@ def _selected(cfg: Config, names: list[str] | None) -> dict:
     return {name: cfg.mcp_servers[name] for name in names if name in cfg.mcp_servers}
 
 
-def selected_names(cfg: Config, names: list[str] | None = None) -> list[str]:
-    """Names of the servers *names* selects; ``None`` selects all of them."""
-    return sorted(_selected(cfg, names))
-
-
 def resolve_servers(cfg: Config, names: list[str] | None = None) -> dict[str, dict]:
     """Return the selected servers as MCP JSON, with ``${VAR}`` expanded.
 
@@ -92,15 +87,20 @@ def render_mcp_json(run_tmp_root: Path, servers: dict[str, dict]) -> Path:
 
 
 _CANONICAL_PREFIX = "mcp__"
-_SEPARATORS = ("__", "_", "-", ".")
+_SEPARATORS = ("__", "_", "-")
 
 
 def canonical_tool_name(name: str, servers: Iterable[str]) -> str:
     """Rewrite an MCP tool name into Claude Code's ``mcp__<server>__<tool>``.
 
-    Each harness joins the server name to the tool name its own way, so the
-    configured server names are matched against every spelling in use.
-    A name that belongs to no configured server is returned unchanged.
+    For harnesses that report an MCP call as one joined string and nothing
+    else, so the only way back to the server is to match the configured
+    names against the spellings in use. A name that belongs to no
+    configured server is returned unchanged.
+
+    Harnesses that name the server in a field of their own resolve the call
+    from that field instead; this guesses, and a native tool whose name
+    happens to start with a server name would be guessed wrong.
     """
     if name.startswith(_CANONICAL_PREFIX):
         return name

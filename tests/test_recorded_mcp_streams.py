@@ -13,9 +13,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agent_exam.mcp import canonicalize_tool_names
 from agent_exam.providers.copilot_cli.provider import CopilotCliProvider
 from agent_exam.providers.dummy import DummyProvider
+from agent_exam.providers.opencode.stream_parser import StreamState, _dispatch
 from agent_exam.trajectory_walk import iter_tool_calls
 
 _TARGET = "mcp__files__search"
@@ -27,7 +27,6 @@ def _lines(name: str) -> list[str]:
 
 
 def _names(trajectory) -> list[str]:
-    canonicalize_tool_names(trajectory, ["files"])
     return [call.name for call in iter_tool_calls(trajectory)]
 
 
@@ -71,8 +70,6 @@ def test_copilot_cuts_on_the_requested_call_and_keeps_it():
 
 
 def test_opencode_cuts_on_the_tool_part():
-    from agent_exam.providers.opencode.stream_parser import StreamState, _dispatch
-
     state = StreamState(provider=DummyProvider())
     state.skill_detection_enabled = True
     state.target_tool = _TARGET
