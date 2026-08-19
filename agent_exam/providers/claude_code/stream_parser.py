@@ -121,8 +121,6 @@ def _dispatch_skill_detection(se: dict, state: StreamState) -> None:
                 if name == state.target_tool:
                     state.detected_tool = name
                     state.kill_signal.set()
-                elif state.negative_trigger_mode:
-                    state.kill_signal.set()
             elif name in ("Skill", "Read"):
                 state._cur_tool_name = name
                 state._cur_tool_use_id = cb.get("id", "")
@@ -160,10 +158,13 @@ def _dispatch_skill_detection(se: dict, state: StreamState) -> None:
         state._cur_accumulated = ""
         # Negative-trigger mode: end of the first assistant turn with
         # no skill fire is a decisive "skill didn't route here" signal.
+        # A tool target settles on the target call or on the turn ending
+        # of its own accord, so message_stop — which also ends a message
+        # that only announced tool calls — decides nothing there.
         if (
             state.negative_trigger_mode
+            and state.target_tool is None
             and se_type == "message_stop"
             and state.detected_skill is None
-            and state.detected_tool is None
         ):
             state.kill_signal.set()

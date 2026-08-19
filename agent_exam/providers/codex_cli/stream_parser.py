@@ -175,18 +175,18 @@ def _dispatch_skill_detection(item: dict, state: StreamState) -> None:
         if _tool_name_from_item(item) == state.target_tool:
             state.detected_tool = state.target_tool
             state.kill_signal.set()
-            return
-    else:
-        detected = _skill_detection_from_item(item)
-        if detected:
-            skill, trigger_kind = detected
-            state.detected_skill = SkillInvocation(
-                skill_name=skill,
-                trigger_kind=trigger_kind,
-                triggered_by_tool_use_id=item.get("id"),
-            )
-            state.kill_signal.set()
-            return
+        return
+
+    detected = _skill_detection_from_item(item)
+    if detected:
+        skill, trigger_kind = detected
+        state.detected_skill = SkillInvocation(
+            skill_name=skill,
+            trigger_kind=trigger_kind,
+            triggered_by_tool_use_id=item.get("id"),
+        )
+        state.kill_signal.set()
+        return
 
     # For negative triggers, non-skill tool work is enough evidence that
     # routing went elsewhere. Plain text alone is not decisive. Reader

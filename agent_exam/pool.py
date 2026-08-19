@@ -27,6 +27,7 @@ from .providers import get_provider
 from .schemas import RunResult
 from .serde import to_json_dict, write_json
 from .tasks import _FIXTURE_EMPTY_DIR_MARKERS, Task
+from .trajectory_walk import count_tool_calls
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -54,21 +55,26 @@ class AttemptOutcome:
     error_verdict: str | None  # "timeout" | None
 
 
-def _settled_nontrigger(task: Task, run_result: RunResult | None) -> bool:
-    """Whether a timed-out positive trigger already has its answer.
+def _settled_on_timeout(task: Task, run_result: RunResult | None) -> bool:
+    """Whether a timed-out trigger already has its answer.
 
     A positive trigger ends either on the first skill fire or on the wall
-    clock, so "no skill fired" can only surface as a timeout. Once the agent
-    has run a real tool without reaching for a skill it has routed elsewhere,
-    and the partial trajectory is enough to score `first_skill` — grading it a
-    fail beats discarding the evidence as a framework error. The tool-call
-    floor keeps a genuine cold-start timeout, where the agent never got to act,
-    out of the pass rate.
+    clock, so "no skill fired" can only surface as a timeout. A negative tool
+    trigger ends either on the target call or on the wall clock, so "the tool
+    was never called" surfaces the same way. Once the agent has run a real tool
+    without reaching for the target it has routed elsewhere, and the partial
+    trajectory is enough to score — grading it beats discarding the evidence as
+    a framework error. The tool-call floor keeps a genuine cold-start timeout,
+    where the agent never got to act, out of the pass rate.
     """
-    if not task.should_trigger or run_result is None:
+    if run_result is None or run_result.metrics.n_tool_calls == 0:
         return False
-    return run_result.metrics.n_tool_calls > 0 and not any(
-        turn.skill_invocations for turn in run_result.trajectory
+    if task.should_trigger:
+        return not any(turn.skill_invocations for turn in run_result.trajectory)
+    return (
+        task.should_trigger is False
+        and task.target_tool is not None
+        and count_tool_calls(run_result.trajectory, task.target_tool) == 0
     )
 
 
@@ -184,10 +190,13 @@ def _execute_attempt(
         # attempt on the first skill fire instead, throwing away the very
         # call the assertion grades on; it runs the turn out instead.
         stop_early = provider.supports_tool_triggers
+    negative_tool_trigger = task.should_trigger is False and bool(task.target_tool)
     if task.should_trigger is False:
         # Negative trigger case: signal the provider to cut early once
-        # the routing decision is evident (first non-Skill tool use or
-        # first message_stop). See stream_parser.negative_trigger_mode.
+        # the routing decision is evident. For a skill target that is the
+        # first non-Skill tool use or the first message_stop; a tool target
+        # has no such shortcut and settles when the turn ends. See
+        # stream_parser.negative_trigger_mode.
         provider_options["negative_trigger"] = True
 
     # Runtime cwd is ephemeral and opaquely-named — no "evals/runs",
@@ -232,9 +241,13 @@ def _execute_attempt(
     # fallback for cold-start latency — stream signals handle the
     # fast path. 60s accommodates slower providers (e.g. opencode
     # with z-ai/glm-5.1 takes ~8s to first byte).
+    #
+    # A negative tool case settles when the turn ends rather than on a
+    # stream signal, so the wall clock is what it actually runs against
+    # and it gets the full task budget.
     if task.timeout_seconds is not None:
         timeout = task.timeout_seconds
-    elif task.kind == "trigger":
+    elif task.kind == "trigger" and not negative_tool_trigger:
         timeout = min(60, cfg.default_task_timeout_seconds)
     else:
         timeout = cfg.default_task_timeout_seconds
@@ -267,7 +280,7 @@ def _execute_attempt(
         # agent was doing when the timeout fired. Verdict stays
         # "timeout" — we just don't throw away the evidence.
         run_result = exc.partial_run_result
-        if _settled_nontrigger(task, run_result):
+        if _settled_on_timeout(task, run_result):
             error_verdict = None
 
     # Every harness spells an MCP tool name its own way; the trajectory that

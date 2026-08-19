@@ -102,15 +102,19 @@ def test_a_positive_case_keeps_going_while_the_agent_looks_around():
     assert not state.kill_signal.is_set()
 
 
-def test_a_negative_case_settles_on_any_other_tool():
+def test_a_negative_case_also_keeps_going_while_the_agent_looks_around():
+    """The eager negative kill is for skill targets, where the skill fires
+    first or not at all. An agent reaches for a tool after grepping and
+    reading, so cutting on the first tool call — or on the message_stop that
+    ends the message announcing it — would settle every negative case before
+    the routing decision is observable."""
     state = StreamState(
         skill_detection_enabled=True, target_tool=_TARGET, negative_trigger_mode=True
     )
 
-    _stream(state, "Bash")
+    _stream(state, "Bash", message_stop=True)
 
-    assert state.detected_tool is None
-    assert state.kill_signal.is_set()
+    assert not state.kill_signal.is_set()
 
 
 def test_the_call_the_kill_landed_on_is_recorded():
@@ -203,7 +207,7 @@ def _graded(result: RunResult) -> bool:
     return tool_called(ToolCalledConfig(name=_TARGET), result, Path()).pass_
 
 
-def test_copilot_negative_case_settles_on_the_first_message():
+def test_copilot_negative_case_does_not_settle_on_the_first_message():
     from agent_exam.providers.copilot_cli.provider import CopilotCliProvider
     from agent_exam.providers.copilot_cli.stream_parser import (
         StreamState as CopilotState,
@@ -226,8 +230,50 @@ def test_copilot_negative_case_settles_on_the_first_message():
         state,
     )
 
-    assert state.detected_tool is None
-    assert state.kill_signal.is_set()
+    assert not state.kill_signal.is_set()
+
+
+def test_opencode_negative_case_does_not_settle_on_a_finished_tool():
+    from agent_exam.providers.opencode.stream_parser import StreamState as OpenCodeState
+    from agent_exam.providers.opencode.stream_parser import _dispatch as opencode
+
+    state = OpenCodeState(provider=DummyProvider())
+    state.skill_detection_enabled = True
+    state.target_tool = _TARGET
+    state.negative_trigger_mode = True
+
+    opencode(
+        json.dumps(
+            {
+                "type": "tool_use",
+                "part": {"tool": "grep", "state": {"status": "completed"}},
+            }
+        ),
+        state,
+    )
+
+    assert not state.kill_signal.is_set()
+
+
+def test_codex_negative_case_does_not_settle_on_a_command():
+    from agent_exam.providers.codex_cli.stream_parser import StreamState as CodexState
+    from agent_exam.providers.codex_cli.stream_parser import _dispatch as codex
+
+    state = CodexState(skill_detection_enabled=True)
+    state.target_tool = _TARGET
+    state.negative_trigger_mode = True
+
+    codex(
+        json.dumps(
+            {
+                "type": "item.completed",
+                "item": {"type": "command_execution", "command": "rg invoice"},
+            }
+        ),
+        state,
+    )
+
+    assert not state.kill_signal.is_set()
 
 
 def test_opencode_records_the_call_its_database_may_not_have():

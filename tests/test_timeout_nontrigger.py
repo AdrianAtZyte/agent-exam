@@ -1,20 +1,37 @@
-"""A positive trigger can only report "skill never fired" as a timeout,
-so `_settled_nontrigger` decides when that timeout is really a fail.
+"""A trigger whose routing decision is only observable on the wall clock
+reports it as a timeout, so `_settled_on_timeout` decides when that timeout
+is really the answer.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from agent_exam.pool import _settled_nontrigger
-from agent_exam.schemas import Metrics, RunResult, SkillInvocation, Tokens, Turn
+from agent_exam.pool import _settled_on_timeout
+from agent_exam.schemas import (
+    Metrics,
+    RunResult,
+    SkillInvocation,
+    Tokens,
+    ToolCallBlock,
+    Turn,
+)
 from agent_exam.tasks import Task
 
 
-def _run(n_tool_calls: int, skills: tuple[str, ...] = ()) -> RunResult:
+def _run(
+    n_tool_calls: int,
+    skills: tuple[str, ...] = (),
+    tools: tuple[str, ...] = (),
+) -> RunResult:
     turn = Turn(
         role="assistant",
-        content=[],
+        content=[
+            ToolCallBlock(
+                tool_use_id=f"c{i}", name=name, input={}, status="ok", result=""
+            )
+            for i, name in enumerate(tools)
+        ],
         skill_invocations=[
             SkillInvocation(skill_name=s, trigger_kind="skill_tool") for s in skills
         ],
@@ -32,7 +49,7 @@ def _run(n_tool_calls: int, skills: tuple[str, ...] = ()) -> RunResult:
     )
 
 
-def _task(should_trigger: bool | None) -> Task:
+def _task(should_trigger: bool | None, target_tool: str | None = None) -> Task:
     return Task(
         suite="scrapy",
         name="t-0",
@@ -47,26 +64,38 @@ def _task(should_trigger: bool | None) -> Task:
         raw={},
         source_path=Path("/tmp/t.yaml"),
         should_trigger=should_trigger,
+        target_tool=target_tool,
     )
 
 
 def test_positive_that_worked_without_a_skill_is_settled():
-    assert _settled_nontrigger(_task(True), _run(n_tool_calls=7))
+    assert _settled_on_timeout(_task(True), _run(n_tool_calls=7))
 
 
 def test_cold_start_timeout_is_not_settled():
     """No tool ran — the agent never got to route, so the timeout stands."""
-    assert not _settled_nontrigger(_task(True), _run(n_tool_calls=0))
+    assert not _settled_on_timeout(_task(True), _run(n_tool_calls=0))
 
 
 def test_skill_fire_is_not_settled():
-    assert not _settled_nontrigger(_task(True), _run(7, ("scrapy",)))
+    assert not _settled_on_timeout(_task(True), _run(7, ("scrapy",)))
 
 
-def test_negative_trigger_and_execute_tasks_keep_the_timeout():
-    assert not _settled_nontrigger(_task(False), _run(n_tool_calls=7))
-    assert not _settled_nontrigger(_task(None), _run(n_tool_calls=7))
+def test_negative_skill_trigger_and_execute_tasks_keep_the_timeout():
+    assert not _settled_on_timeout(_task(False), _run(n_tool_calls=7))
+    assert not _settled_on_timeout(_task(None), _run(n_tool_calls=7))
+
+
+def test_negative_tool_trigger_that_never_called_the_tool_is_settled():
+    """It has no stream signal to settle on: the target call cuts the
+    attempt, and anything else runs against the wall clock."""
+    task = _task(False, target_tool="mcp__files__search")
+
+    assert _settled_on_timeout(task, _run(n_tool_calls=7))
+    assert not _settled_on_timeout(
+        task, _run(n_tool_calls=7, tools=("mcp__files__search",))
+    )
 
 
 def test_no_partial_trajectory_keeps_the_timeout():
-    assert not _settled_nontrigger(_task(True), None)
+    assert not _settled_on_timeout(_task(True), None)

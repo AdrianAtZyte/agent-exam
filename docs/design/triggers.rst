@@ -125,6 +125,13 @@ and Copilot CLI see the call announced before it runs; Codex CLI cuts as it
 starts and OpenCode once it is over, so on those two the tool does run — keep
 that in mind for a tool with side effects.
 
+Nothing else cuts the attempt. A skill fires first or not at all, but an agent
+greps and reads before deciding to call a tool, so the only decisive signal
+for a negative case is the turn ending without the call. Negative tool cases
+run a full turn: they cost more than negative skill cases, they get the whole
+``default_task_timeout_seconds`` instead of the 60-second trigger default, and
+any side-effecting tool the agent reaches for on the way does run.
+
 Author bias is a real problem
 =============================
 
@@ -156,10 +163,12 @@ agent the moment it invokes the target skill. Negative cases kill as soon as
 the routing is observably elsewhere: either the agent reaches for a non-skill
 tool, or its first turn ends with no skill fired. On Claude Code, ``Read`` is
 exempt, because some skills inspect files before routing. Codex CLI exposes
-skill use as an announcement and a read of :file:`.agents/skills/<name>/SKILL.md`,
-and its provider uses those stream signals for the same early kill. Either way
-the skill body normally does not execute, and you pay for one short routing
-turn.
+skill use as an announcement and a read of
+:file:`.agents/skills/<name>/SKILL.md`, and its provider uses those stream
+signals for the same early kill. Either way the skill body normally does not
+execute, and you pay for one short routing turn. The negative half of this is a
+skill-target optimization: with a ``tool:`` target only the target call cuts the
+attempt.
 
 **Shared working directory across attempts, for fixtureless triggers.** All
 fixtureless trigger attempts in a run share one working directory. Claude Code

@@ -105,18 +105,21 @@ def _dispatch(line: str, state: StreamState) -> None:
                 _check_tool_in_message(event, state)
             else:
                 _check_skill_in_message(event, state)
-            # For negative trigger mode: once the model's tool requests are
-            # known (i.e. this message has arrived), if the target was not
-            # requested the routing decision is settled — kill immediately
-            # rather than waiting for tool.execution_start or
-            # assistant.turn_end.
-            if state.negative_trigger_mode and not state.kill_signal.is_set():
-                state.kill_signal.set()
+                # For negative trigger mode: once the model's tool requests
+                # are known (i.e. this message has arrived), if the skill was
+                # not requested the routing decision is settled — kill
+                # immediately rather than waiting for tool.execution_start or
+                # assistant.turn_end. A tool target settles at
+                # assistant.turn_end instead: the agent reaches for it after
+                # looking around, so an early message without it decides
+                # nothing.
+                if state.negative_trigger_mode and not state.kill_signal.is_set():
+                    state.kill_signal.set()
 
     elif event_type == "assistant.turn_end":
-        # Belt-and-suspenders: if kill_signal wasn't already set by
-        # assistant.message (e.g. the stream is missing that event),
-        # fire here as a fallback.
+        # The turn ending without the target is decisive in itself. For a tool
+        # target it is the only such signal; for a skill target it backs up
+        # assistant.message, in case the stream is missing that event.
         if (
             state.skill_detection_enabled
             and state.negative_trigger_mode

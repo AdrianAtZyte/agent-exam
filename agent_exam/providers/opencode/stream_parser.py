@@ -114,8 +114,6 @@ def _dispatch_skill_detection(part: dict, state: StreamState) -> None:
         ):
             state.detected_tool = tool
             state.kill_signal.set()
-        elif state.negative_trigger_mode and tool_status in ("completed", "error"):
-            state.kill_signal.set()
         return
 
     if tool == "skill" and tool_status in ("completed", "error"):
