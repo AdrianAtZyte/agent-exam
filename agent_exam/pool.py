@@ -281,11 +281,13 @@ def _execute_attempt(
         if _settled_on_timeout(task, run_result):
             error_verdict = None
 
-    # A server that failed to connect leaves the agent without the tools the
-    # task is about, which grades as a skill failure rather than the setup
-    # failure it is.
+    # A server that failed to connect — or that the harness never attached
+    # at all — leaves the agent without the tools the task is about, which
+    # grades as a skill failure rather than the setup failure it is.
     if run_result is not None:
-        connected = connection_check(run_result.mcp_servers)
+        connected = connection_check(
+            run_result.mcp_servers, provider_options.get("mcp_server_names") or ()
+        )
         if connected.status == "FAIL":
             error_verdict = "error"
             print(

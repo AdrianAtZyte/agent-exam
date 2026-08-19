@@ -414,7 +414,7 @@ class ClaudeCodeProvider(Provider):
         transcript = probe_result.raw_transcript_path
         results = [hermetic_check(transcript)]
         if cfg is not None and cfg.mcp_servers:
-            results.append(connection_check(probe_result.mcp_servers))
+            results.append(connection_check(probe_result.mcp_servers, cfg.mcp_servers))
         if cfg is not None:
             cfg_provider = cfg.provider(self.name)
             results.append(

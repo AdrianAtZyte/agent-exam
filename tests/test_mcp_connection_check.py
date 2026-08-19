@@ -57,8 +57,16 @@ def test_check_passes_when_every_server_connected():
     assert connection_check({"files": "connected"}).status == "OK"
 
 
+def test_check_fails_when_an_expected_server_is_missing():
+    """The config never reached the CLI, so the agent has no tools at all."""
+    result = connection_check({}, ["files"])
+
+    assert result.status == "FAIL"
+    assert "files (not attached)" in result.hint
+
+
 def test_check_passes_with_nothing_attached():
-    assert connection_check(None).status == "OK"
+    assert connection_check(None, ["files"]).status == "OK"
     assert connection_check({}).status == "OK"
 
 

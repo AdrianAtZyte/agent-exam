@@ -214,27 +214,40 @@ def preflight(cfg: Config, provider: Provider) -> list[CheckResult]:
     return results
 
 
-def connection_check(statuses: dict[str, str] | None) -> CheckResult:
+def connection_check(
+    statuses: dict[str, str] | None, expected: Iterable[str] = ()
+) -> CheckResult:
     """Report the MCP connection statuses a harness announced at session
-    start. A server that failed to connect leaves the agent silently
-    without its tools, which reads as a skill failure.
+    start, against the *expected* server names. A server that failed to
+    connect — or that the harness never mentions, because the config never
+    reached it — leaves the agent silently without its tools, which reads
+    as a skill failure.
+
+    *statuses* is ``None`` when the harness announces nothing, which says
+    nothing either way.
     """
+    if statuses is None:
+        return CheckResult(
+            name="mcp servers connected",
+            status="OK",
+            hint="harness reports no connection status",
+        )
+    problems = sorted(
+        f"{name} ({statuses.get(name) or 'not attached'})"
+        for name in {*statuses, *expected}
+        if statuses.get(name) != "connected"
+    )
+    if problems:
+        return CheckResult(
+            name="mcp servers connected",
+            status="FAIL",
+            hint=f"did not connect: {', '.join(problems)}",
+        )
     if not statuses:
         return CheckResult(
             name="mcp servers connected",
             status="OK",
             hint="no MCP servers attached",
-        )
-    failed = sorted(
-        f"{name} ({status})"
-        for name, status in statuses.items()
-        if status != "connected"
-    )
-    if failed:
-        return CheckResult(
-            name="mcp servers connected",
-            status="FAIL",
-            hint=f"did not connect: {', '.join(failed)}",
         )
     return CheckResult(
         name="mcp servers connected",
