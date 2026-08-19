@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .errors import AgentExamError, ProviderTimeout, UsageError
+from .mcp import connection_check
 from .providers import get_provider
 from .schemas import RunResult
 from .serde import to_json_dict, write_json
@@ -280,6 +281,19 @@ def _execute_attempt(
         if _settled_on_timeout(task, run_result):
             error_verdict = None
 
+    # A server that failed to connect leaves the agent without the tools the
+    # task is about, which grades as a skill failure rather than the setup
+    # failure it is.
+    if run_result is not None:
+        connected = connection_check(run_result.mcp_servers)
+        if connected.status == "FAIL":
+            error_verdict = "error"
+            print(
+                f"attempt error {task.suite}::{task.name} "
+                f"attempt-{attempt_n}: MCP servers {connected.hint}",
+                file=sys.stderr,
+            )
+
     attempt_finished = attempt_finished_writer()
 
     # Mirror the end-of-attempt cwd into the archive (for scoring assertions
@@ -321,6 +335,7 @@ def _execute_attempt(
                 "finished_at": attempt_finished,
                 "raw_transcript_path": str(raw_path) if raw_path else None,
                 "metrics": to_json_dict(run_result.metrics),
+                "mcp_servers": run_result.mcp_servers,
             },
         )
         write_json(
