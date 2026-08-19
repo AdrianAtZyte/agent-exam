@@ -48,6 +48,12 @@ class Provider:
     #: is not an allowlist should override :meth:`judge_agent_options`.
     safe_judge_tools: tuple[str, ...] = ()
 
+    #: Whether this harness can attach MCP servers, i.e. whether it
+    #: overrides :meth:`stage_mcp_config`. Kept as a flag so the preflight
+    #: can ask without importing the provider registry, which imports every
+    #: provider, which imports the module the preflight lives in.
+    supports_mcp: ClassVar[bool] = False
+
     #: Human-readable model source used when ``invoke(..., model="")``
     #: intentionally omits the provider's model flag. ``None`` means doctor
     #: should not run LLM probes without an explicit configured model.

@@ -75,6 +75,7 @@ class CodexCliProvider(Provider):
     safe_judge_tools = ("command_execution",)
     omitted_model_label = "Codex CLI default model"
     task_config_model: ClassVar[type[BaseModel]] = CodexCliTaskConfig
+    supports_mcp: ClassVar[bool] = True
 
     def task_options(
         self, task_cfg: CodexCliTaskConfig | None, framework_cfg, task_kind: str

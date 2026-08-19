@@ -65,7 +65,9 @@ reserved verb is treated as a suite spec and dispatched to ``run``, so
     Reality-check mode with the skills in place but no MCP server attached, so
     what the servers were doing for the suite shows up as the difference. Skips
     trigger tasks with a ``tool`` target, which have no MCP call left to make.
-    Exits 0 whatever the verdicts. Refused when no server is declared.
+    Exits 0 whatever the verdicts. Refused when no server is declared, and
+    mutually exclusive with the two above — a run that withholds both cannot
+    say which of the two the difference is down to.
 
 ``--no-triggers``
     Skip ``kind: trigger`` tasks and run only execute tasks. Implied by the two

@@ -35,9 +35,9 @@ class StreamState:
     kill_signal: threading.Event = field(default_factory=threading.Event)
 
     # Tool-targeted trigger: the canonical name of the tool the run is cut
-    # on. `detected_tool` holds the spelling Copilot used.
+    # on. Nothing records the call — Copilot announces every tool of a turn
+    # before running any of them, so the trajectory already has it.
     target_tool: str | None = None
-    detected_tool: str | None = None
 
     # Negative-trigger mode: kill as soon as the routing decision is clear.
     # For Copilot CLI this is always at assistant.message time (tool calls are
@@ -169,13 +169,11 @@ def _check_tool_in_message(event: dict, state: StreamState) -> None:
     trajectory is built from.
     """
     for req in (event.get("data") or {}).get("toolRequests") or []:
-        name = req.get("name")
-        if not isinstance(name, str) or not name:
-            continue
         canonical = _request_tool_name(req)
+        if not isinstance(canonical, str) or not canonical:
+            continue
         if settles_tool_trigger(
             canonical, state.target_tool, state.negative_trigger_mode
         ):
-            state.detected_tool = name
             state.kill_signal.set()
             return

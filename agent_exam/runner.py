@@ -69,17 +69,23 @@ class RunRequest:
                 "--without-skill and --no-skills are mutually exclusive; "
                 "--no-skills already drops every skill"
             )
+        if self.no_mcp and self.skills_withheld:
+            raise UsageError(
+                "--no-mcp is mutually exclusive with --without-skill and "
+                "--no-skills; a run that withholds both cannot say which of "
+                "the two the difference is down to"
+            )
 
     @property
-    def reality_check(self) -> bool:
+    def skills_withheld(self) -> bool:
         """True when skills are (partly or wholly) withheld from the harness."""
         return self.without_skill or self.no_skills
 
     @property
-    def informational(self) -> bool:
+    def reality_check(self) -> bool:
         """True when the run withholds something the suite is meant to have,
         so its verdicts describe a counterfactual rather than a regression."""
-        return self.reality_check or self.no_mcp
+        return self.skills_withheld or self.no_mcp
 
 
 def _utc_now_iso() -> str:
@@ -329,13 +335,15 @@ def run(cfg: Config, req: RunRequest) -> int:
     # because a reality-check mode implies it: with the skills withheld there
     # is nothing for a trigger case to fire.
     effective_k = req.k
-    drop_triggers = req.no_triggers or req.reality_check
+    drop_triggers = req.no_triggers or req.skills_withheld
     if drop_triggers:
         tasks = [t for t in tasks if t.kind != "trigger"]
         if not tasks:
             specs_str = ", ".join(f"{s}::{t}" if t else s for s, t in req.specs)
             reason = (
-                "to reality-check" if req.reality_check else "left after --no-triggers"
+                "to reality-check"
+                if req.skills_withheld
+                else "left after --no-triggers"
             )
             raise UsageError(f"no kind: execute tasks found in {specs_str!r} {reason}")
 
@@ -616,7 +624,7 @@ def run(cfg: Config, req: RunRequest) -> int:
     # Reality-check runs are informational — don't translate assertion
     # failures into a non-zero exit code. Framework errors would have
     # bubbled up before this point.
-    if req.informational:
+    if req.reality_check:
         return 0
     # Known-issue outcomes don't gate the suite: the whole point of the
     # annotation is to land a failing check without failing the run.

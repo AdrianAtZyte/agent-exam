@@ -144,6 +144,28 @@ def _mirror_cwd(src: Path, dst: Path) -> None:
     )
 
 
+# Staged MCP configs by (provider, run tmp root, server set). Per worker
+# process, which is as far as the memo has to reach: the pool hands each
+# attempt to a fresh Provider instance, and every attempt asking for the same
+# servers would otherwise re-render an identical config.
+_MCP_STAGING: dict[tuple, dict] = {}
+
+
+def _mcp_options(
+    provider, run_tmp_root: Path, cfg: Config, servers: list[str] | None
+) -> dict:
+    """The provider options that attach *servers*, staged on first use.
+
+    Whatever file the harness needs is rendered under the run tmp root — a
+    sibling of the attempt cwd, never inside it, so a server block holding a
+    credential stays out of the archived cwd.
+    """
+    key = (provider.name, run_tmp_root, None if servers is None else tuple(servers))
+    if key not in _MCP_STAGING:
+        _MCP_STAGING[key] = provider.stage_mcp_config(run_tmp_root, cfg, servers)
+    return _MCP_STAGING[key]
+
+
 def _execute_attempt(
     task: Task,
     attempt_n: int,
@@ -221,12 +243,7 @@ def _execute_attempt(
     # block access to parent-dir skills.
     provider.stage_run_env(runtime_cwd, cfg, skills_to_exclude=skills_to_exclude)
 
-    # MCP servers are attached from a file the provider renders under the
-    # run tmp root — a sibling of the attempt cwd, never inside it, so a
-    # server block holding a credential stays out of the archived cwd.
-    provider_options.update(
-        provider.stage_mcp_config(run_tmp_root, cfg, task.mcp_servers)
-    )
+    provider_options.update(_mcp_options(provider, run_tmp_root, cfg, task.mcp_servers))
 
     # Skill-target trigger tasks default to 60s: positives get killed on
     # first skill fire; negatives get killed on first non-Skill tool use or

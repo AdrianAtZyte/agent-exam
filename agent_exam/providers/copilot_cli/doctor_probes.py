@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from functools import cache
 from pathlib import Path
 
 from ...schemas import CheckResult
@@ -93,6 +94,16 @@ def _plugin_mcp_servers(plugin_dir: Path) -> list[str]:
     return []
 
 
+@cache
+def _scan_personal_mcp_servers(
+    user_config: Path, plugins_root: Path
+) -> tuple[str, ...]:
+    names = set(_server_names(_read_json(user_config)))
+    for plugin_dir in sorted(plugins_root.glob("*/*")):
+        names.update(_plugin_mcp_servers(plugin_dir))
+    return tuple(sorted(names))
+
+
 def personal_mcp_servers(
     config_path: Path | None = None, plugins_dir: Path | None = None
 ) -> list[str]:
@@ -104,14 +115,17 @@ def personal_mcp_servers(
     plugin is currently enabled is not consulted: disabling a server that
     would not have loaded anyway costs nothing, while missing one that does
     breaks the trial.
+
+    Scanned once per pair of paths, since every attempt of a run asks the
+    same question of the same home directory.
     """
     copilot_dir = Path.home() / ".copilot"
-    user_config = config_path or copilot_dir / "mcp-config.json"
-    names = set(_server_names(_read_json(user_config)))
-    root = plugins_dir or copilot_dir / "installed-plugins"
-    for plugin_dir in sorted(root.glob("*/*")):
-        names.update(_plugin_mcp_servers(plugin_dir))
-    return sorted(names)
+    return list(
+        _scan_personal_mcp_servers(
+            config_path or copilot_dir / "mcp-config.json",
+            plugins_dir or copilot_dir / "installed-plugins",
+        )
+    )
 
 
 def check_personal_mcp_servers(cfg=None) -> CheckResult:

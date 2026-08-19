@@ -141,3 +141,18 @@ def test_a_tool_trigger_only_suite_is_refused(tmp_path):
 
     with pytest.raises(UsageError, match="targets an MCP tool"):
         run(load_config(root), _req(no_mcp=True))
+
+
+@pytest.mark.parametrize("mode", ["without_skill", "no_skills"])
+def test_withholding_skills_too_is_refused(mode):
+    """A run that withholds both cannot attribute the difference to either."""
+    with pytest.raises(UsageError, match="mutually exclusive"):
+        RunRequest(
+            specs=[("s", None)],
+            provider="dummy",
+            model="",
+            k=1,
+            n_parallel=1,
+            no_mcp=True,
+            **{"without_skill": False, mode: True},
+        )

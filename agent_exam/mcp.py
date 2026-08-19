@@ -162,17 +162,13 @@ def preflight(
     them, so a credentialed server that no selected task asks for does not
     stand in the way of the run. ``None`` checks every configured server.
     """
-    # Imported here because the provider registry imports every provider, and
-    # the providers import this module.
-    from .providers.base import Provider as _Base
-
     servers = cfg.mcp_servers if tasks is None else _planned(cfg, tasks)
     if not servers:
         return []
 
     results: list[CheckResult] = []
 
-    if type(provider).stage_mcp_config is _Base.stage_mcp_config:
+    if not provider.supports_mcp:
         results.append(
             CheckResult(
                 name="mcp servers supported",

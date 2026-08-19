@@ -63,7 +63,6 @@ def test_copilot_cuts_on_the_requested_call_and_keeps_it():
     for line in _lines("copilot_mcp_stream.jsonl"):
         _dispatch(line, state)
 
-    assert state.detected_tool == "files-search"
     assert state.kill_signal.is_set()
     result = build_run_result(state, wall_time_seconds=0.0)
     assert _names(result.trajectory) == [_TARGET]
