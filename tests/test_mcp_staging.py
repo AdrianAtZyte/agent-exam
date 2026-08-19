@@ -263,3 +263,37 @@ def test_copilot_disables_the_developers_own_servers(cfg, tmp_path, monkeypatch)
     # `files` is ours this run, so disabling it would disable what the task
     # is about.
     assert "files" not in cmd
+
+
+def test_opencode_allowlist_allows_each_server(cfg, tmp_path):
+    env = _capture_cmd(
+        OpenCodeProvider(),
+        {"allowed_tools": ["read"], "mcp_server_names": ["files", "remote"]},
+        cwd=tmp_path,
+    )["env"]
+
+    permission = json.loads(env["OPENCODE_CONFIG_CONTENT"])["permission"]
+
+    # Ordered: the last rule matching a tool wins, so the server rules have
+    # to follow the `*` deny.
+    assert list(permission.items()) == [
+        ("*", "deny"),
+        ("read", "allow"),
+        ("files*", "allow"),
+        ("remote*", "allow"),
+        ("external_directory", "deny"),
+    ]
+
+
+def test_copilot_allowlist_makes_each_server_available(cfg, tmp_path):
+    cmd = _capture_cmd(
+        CopilotCliProvider(),
+        {"allowed_tools": ["view"], "mcp_server_names": ["files", "remote"]},
+        cwd=tmp_path,
+    )["cmd"]
+
+    tools = "view,files,remote,skill,report_intent"
+    assert cmd[cmd.index("--available-tools") + 1] == tools
+    assert [
+        cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--allow-tool"
+    ] == tools.split(",")

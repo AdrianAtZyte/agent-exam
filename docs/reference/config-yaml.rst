@@ -328,6 +328,10 @@ a task file because reports serialize task files verbatim.
 Runs are hermetic: the servers configured here are the only ones the agent
 sees, and the ones set up in the developer's own harness config are left out.
 
+A per-task ``allowed_tools`` allowlist covers every attached server on its
+own, since a list that named only native tools would deny the tools the task
+is about.
+
 A server that fails to connect leaves the agent silently without its tools, so
 an attempt whose harness reports one is an ``error`` rather than a graded
 result. The statuses land in the attempt's :file:`attempt.json`.

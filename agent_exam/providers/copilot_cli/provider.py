@@ -94,7 +94,7 @@ class CopilotCliProvider(Provider):
         # the developer's own servers would otherwise compete for tool calls
         # with the ones under evaluation.
         cmd.append("--disable-builtin-mcps")
-        attached = set(provider_options.get("mcp_server_names") or ())
+        attached = tuple(provider_options.get("mcp_server_names") or ())
         for name in personal_mcp_servers():
             if name not in attached:
                 cmd.extend(["--disable-mcp-server", name])
@@ -112,7 +112,10 @@ class CopilotCliProvider(Provider):
         if allowed:
             # Precise mode: only the listed tools (plus internal ones) are
             # visible to the model — anything else is hidden entirely.
-            tools = list(dict.fromkeys([*allowed, "skill", "report_intent"]))
+            # A server name stands for its whole tool set on both flags,
+            # the only way to name MCP tools here: their own names are
+            # unknown until the server is dialed.
+            tools = list(dict.fromkeys([*allowed, *attached, "skill", "report_intent"]))
             cmd.extend(["--available-tools", ",".join(tools)])
             for t in tools:
                 cmd.extend(["--allow-tool", t])

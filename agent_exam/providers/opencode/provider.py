@@ -134,6 +134,7 @@ class OpenCodeProvider(Provider):
         permission_config = build_permission_config(
             permission=provider_options.get("permission"),
             allowed_tools=provider_options.get("allowed_tools"),
+            mcp_servers=provider_options.get("mcp_server_names"),
         )
         config: dict = {}
         if permission_config:
@@ -357,7 +358,10 @@ _BARE_DENY_HANG_TOOLS = frozenset({"bash", "edit", "write", "read"})
 
 
 def build_permission_config(
-    *, permission: dict | None, allowed_tools: list[str] | tuple[str, ...] | None
+    *,
+    permission: dict | None,
+    allowed_tools: list[str] | tuple[str, ...] | None,
+    mcp_servers: list[str] | tuple[str, ...] | None = None,
 ) -> dict:
     """Compose the OpenCode `permission` mapping for one invocation.
 
@@ -371,12 +375,20 @@ def build_permission_config(
     - ``external_directory`` is always force-denied if absent — its
       OpenCode default of ``ask`` would cause headless runs to hang
       waiting for user approval that never arrives.
+
+    An allowlist also allows every tool of each server in *mcp_servers*:
+    one that doesn't name them denies them, so the tools the task is about
+    never run. A permission key is matched as a wildcard against the tool
+    name, so ``<server>*`` covers a server's tool set whichever way
+    OpenCode joins server and tool.
     """
     permission_config = dict(permission or {})
     if not permission_config and allowed_tools is not None:
         permission_config["*"] = "deny"
         for tool in allowed_tools:
             permission_config[tool] = "allow"
+        for name in mcp_servers or ():
+            permission_config[f"{name}*"] = "allow"
     if "external_directory" not in permission_config:
         permission_config["external_directory"] = "deny"
     return permission_config
