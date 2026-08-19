@@ -165,7 +165,10 @@ def test_claude_argv_carries_the_config_path():
         ClaudeCodeProvider(), {"mcp_config_path": Path("/tmp/x.mcp.json")}
     )["cmd"]
 
-    assert cmd[cmd.index("--mcp-config") + 1] == "/tmp/x.mcp.json"
+    path_at = cmd.index("--mcp-config") + 1
+    assert cmd[path_at] == "/tmp/x.mcp.json"
+    # `--mcp-config` is variadic, so the path must be followed by a flag.
+    assert cmd[path_at + 1].startswith("--")
     assert "--strict-mcp-config" in cmd
 
 
