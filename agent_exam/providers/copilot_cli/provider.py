@@ -88,11 +88,18 @@ class CopilotCliProvider(Provider):
         if model:
             cmd.extend(["--model", model])
 
-        # `--additional-mcp-config` augments the built-in servers and
-        # `~/.copilot/mcp-config.json` rather than replacing them, and there
-        # is no strict counterpart, so both sets are turned off by hand —
-        # the developer's own servers would otherwise compete for tool calls
-        # with the ones under evaluation.
+        # `--additional-mcp-config` augments Copilot CLI's other MCP sources
+        # rather than replacing them, and there is no strict counterpart, so
+        # each is turned off by hand — they would otherwise compete for tool
+        # calls with the servers under evaluation. The built-in servers go as
+        # a set; the developer's user config and installed plugins go by
+        # name. The remaining source is the workspace, which here is the
+        # attempt's own staged directory.
+        #
+        # A name this run attaches is left alone: `--disable-mcp-server`
+        # works on the merged set, so disabling it would take the attached
+        # server with it. Copilot CLI merges the additional config last, so
+        # that name resolves to the configured definition either way.
         cmd.append("--disable-builtin-mcps")
         attached = tuple(provider_options.get("mcp_server_names") or ())
         for name in personal_mcp_servers():
@@ -258,9 +265,9 @@ class CopilotCliProvider(Provider):
         }
 
     def preflight(self, cfg=None) -> list[CheckResult]:
-        """Binary version check + personal-skills leak warning."""
+        """Binary version check + personal skill and MCP server leak warnings."""
         from ..skill_staging import check_global_skills_against_staged
-        from .doctor_probes import check_binary
+        from .doctor_probes import check_binary, check_personal_mcp_servers
 
         results = [check_binary()]
         if results[0].status == "FAIL":
@@ -273,6 +280,7 @@ class CopilotCliProvider(Provider):
                 check_name="personal skills",
             )
         )
+        results.append(check_personal_mcp_servers(cfg))
         return results
 
     def probe_checks(self, probe_result, cfg=None) -> list[CheckResult]:
@@ -282,16 +290,18 @@ class CopilotCliProvider(Provider):
         return [check_probe_model(probe_result)]
 
     def pre_run_warnings(self, cfg=None) -> list[CheckResult]:
-        """Warn before any trial if personal skills could leak."""
+        """Warn before any trial if personal skills or MCP servers could leak."""
         from ..skill_staging import check_global_skills_against_staged
+        from .doctor_probes import check_personal_mcp_servers
 
-        result = check_global_skills_against_staged(
-            self.get_global_skills(),
-            cfg,
-            self.name,
-            check_name="personal skills",
-        )
-        # Only surface as a warning at run-start when non-empty.
-        if result.status == "WARN":
-            return [result]
-        return []
+        results = [
+            check_global_skills_against_staged(
+                self.get_global_skills(),
+                cfg,
+                self.name,
+                check_name="personal skills",
+            ),
+            check_personal_mcp_servers(cfg),
+        ]
+        # Only surface as warnings at run-start when non-empty.
+        return [r for r in results if r.status == "WARN"]

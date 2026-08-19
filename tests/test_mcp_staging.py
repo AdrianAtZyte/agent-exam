@@ -286,6 +286,37 @@ def test_copilot_disables_the_developers_own_servers(cfg, tmp_path, monkeypatch)
     assert "files" not in cmd
 
 
+def test_copilot_disables_plugin_servers(cfg, tmp_path, monkeypatch):
+    """Installed plugins are an MCP source of their own, whether they ship a
+    config file or declare the servers in their manifest."""
+    plugins = tmp_path / "installed-plugins"
+    own_file = plugins / "market" / "with-config"
+    (own_file / ".github").mkdir(parents=True)
+    (own_file / ".github" / "mcp.json").write_text(
+        json.dumps({"mcpServers": {"from-file": {}}})
+    )
+    manifest = plugins / "market" / "with-manifest"
+    (manifest / ".plugin").mkdir(parents=True)
+    (manifest / ".plugin" / "plugin.json").write_text(
+        json.dumps({"name": "with-manifest", "mcpServers": "./servers.json"})
+    )
+    (manifest / "servers.json").write_text(
+        json.dumps({"mcpServers": {"from-manifest": {}}})
+    )
+    monkeypatch.setattr(
+        "agent_exam.providers.copilot_cli.provider.personal_mcp_servers",
+        lambda: personal_mcp_servers(tmp_path / "absent.json", plugins),
+    )
+    options = CopilotCliProvider().stage_mcp_config(tmp_path, cfg, ["files"])
+
+    cmd = _capture_cmd(CopilotCliProvider(), options, cwd=tmp_path)["cmd"]
+
+    disabled = [
+        cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--disable-mcp-server"
+    ]
+    assert disabled == ["from-file", "from-manifest"]
+
+
 def test_opencode_allowlist_allows_each_server(cfg, tmp_path):
     env = _capture_cmd(
         OpenCodeProvider(),

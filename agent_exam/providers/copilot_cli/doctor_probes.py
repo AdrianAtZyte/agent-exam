@@ -55,16 +55,92 @@ def check_probe_model(probe_result) -> CheckResult:
     )
 
 
-def personal_mcp_servers(config_path: Path | None = None) -> list[str]:
-    """Names of the MCP servers in the developer's own Copilot CLI config.
+# Where a plugin declares its MCP servers: a config file of its own, or an
+# `mcpServers` key in its manifest holding either the same mapping or a path
+# to a file with one.
+_PLUGIN_CONFIGS = (".mcp.json", ".github/mcp.json")
+_PLUGIN_MANIFESTS = (
+    ".plugin/plugin.json",
+    ".github/plugin/plugin.json",
+    ".claude-plugin/plugin.json",
+)
 
-    ``--additional-mcp-config`` augments that file rather than replacing it,
-    so each of these is disabled by name to keep a trial hermetic.
-    """
-    path = config_path or Path.home() / ".copilot" / "mcp-config.json"
+
+def _read_json(path: Path):
     try:
-        data = json.loads(path.read_text())
+        return json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
-        return []
+        return None
+
+
+def _server_names(data) -> list[str]:
     servers = data.get("mcpServers") if isinstance(data, dict) else None
     return sorted(servers) if isinstance(servers, dict) else []
+
+
+def _plugin_mcp_servers(plugin_dir: Path) -> list[str]:
+    for rel in _PLUGIN_CONFIGS:
+        data = _read_json(plugin_dir / rel)
+        if data is not None:
+            return _server_names(data)
+    for rel in _PLUGIN_MANIFESTS:
+        data = _read_json(plugin_dir / rel)
+        servers = data.get("mcpServers") if isinstance(data, dict) else None
+        if isinstance(servers, str):
+            return _server_names(_read_json(plugin_dir / servers))
+        if servers is not None:
+            return _server_names(data)
+    return []
+
+
+def personal_mcp_servers(
+    config_path: Path | None = None, plugins_dir: Path | None = None
+) -> list[str]:
+    """Names of the MCP servers the developer's own Copilot CLI setup loads,
+    from its user config file and from every installed plugin.
+
+    ``--additional-mcp-config`` augments those rather than replacing them, so
+    each of these is disabled by name to keep a trial hermetic. Whether a
+    plugin is currently enabled is not consulted: disabling a server that
+    would not have loaded anyway costs nothing, while missing one that does
+    breaks the trial.
+    """
+    copilot_dir = Path.home() / ".copilot"
+    user_config = config_path or copilot_dir / "mcp-config.json"
+    names = set(_server_names(_read_json(user_config)))
+    root = plugins_dir or copilot_dir / "installed-plugins"
+    for plugin_dir in sorted(root.glob("*/*")):
+        names.update(_plugin_mcp_servers(plugin_dir))
+    return sorted(names)
+
+
+def check_personal_mcp_servers(cfg=None) -> CheckResult:
+    """Report the developer's own MCP servers, and any name they share with a
+    configured one.
+
+    Copilot CLI merges ``--additional-mcp-config`` last, so a shared name
+    resolves to the configured definition, and the developer's server of that
+    name cannot be disabled without taking the configured one with it.
+    """
+    personal = personal_mcp_servers()
+    if not personal:
+        return CheckResult(
+            name="personal mcp servers",
+            status="OK",
+            hint="none set up",
+        )
+    shared = sorted(set(personal) & set(getattr(cfg, "mcp_servers", None) or ()))
+    if shared:
+        return CheckResult(
+            name="personal mcp servers",
+            status="WARN",
+            hint=(
+                f"{', '.join(shared)} named both under mcp_servers: and in your own "
+                "Copilot CLI setup, which stays enabled behind the configured one"
+            ),
+        )
+    return CheckResult(
+        name="personal mcp servers",
+        status="OK",
+        hint=f"{', '.join(personal)} disabled per trial",
+    )

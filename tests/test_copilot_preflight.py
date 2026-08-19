@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+
+from agent_exam.providers.copilot_cli.doctor_probes import check_personal_mcp_servers
 from agent_exam.providers.copilot_cli.provider import CopilotCliProvider
 
 # --- get_global_skills ------------------------------------------------------
@@ -142,3 +145,47 @@ def test_preflight_global_skills_no_clash(monkeypatch, tmp_path):
     )
     assert result.status == "OK"
     assert "none clash" in result.hint
+
+
+# --- personal MCP servers check ---------------------------------------------
+
+
+def _write_user_mcp_config(home, servers):
+    copilot = home / ".copilot"
+    copilot.mkdir(parents=True, exist_ok=True)
+    (copilot / "mcp-config.json").write_text(
+        json.dumps({"mcpServers": {name: {} for name in servers}})
+    )
+
+
+def test_personal_mcp_servers_none(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    result = check_personal_mcp_servers(None)
+    assert result.status == "OK"
+    assert result.hint == "none set up"
+
+
+def test_personal_mcp_servers_are_disabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_user_mcp_config(tmp_path, ["notes"])
+
+    class FakeCfg:
+        mcp_servers = {"files": {}}
+
+    result = check_personal_mcp_servers(FakeCfg())
+    assert result.status == "OK"
+    assert "notes disabled" in result.hint
+
+
+def test_personal_mcp_server_sharing_a_name_warns(tmp_path, monkeypatch):
+    """A shared name cannot be disabled without disabling the attached
+    server, so it stays enabled behind it."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_user_mcp_config(tmp_path, ["files"])
+
+    class FakeCfg:
+        mcp_servers = {"files": {}}
+
+    result = check_personal_mcp_servers(FakeCfg())
+    assert result.status == "WARN"
+    assert "files" in result.hint
