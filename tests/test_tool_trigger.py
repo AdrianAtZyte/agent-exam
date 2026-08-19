@@ -259,6 +259,31 @@ def test_a_tool_of_a_server_the_task_leaves_out_fails_validation(tmp_path):
     ]
 
 
+def test_a_tool_target_shaped_like_a_typo_of_a_server_fails_validation(tmp_path):
+    """`files_search` reads as a typo of `mcp__files__search` — left as
+    written it can never match a canonicalized trajectory."""
+    from agent_exam.validation import validate_suite
+
+    root = tmp_path / "proj"
+    (root / "evals" / "suites" / "s" / "tasks").mkdir(parents=True)
+    (root / "pyproject.toml").write_text('[tool.agent-exam]\nevals_dir = "evals"\n')
+    (root / "evals" / "config.yaml").write_text(
+        "default_harness: dummy\nskills_dirs: []\nmcp_servers:\n  files:\n    command: sh\n"
+    )
+    (root / "evals" / "suites" / "s" / "tasks" / "typo.yaml").write_text(
+        "kind: trigger\ntool: files_search\npositive: [hi]\n"
+    )
+    (root / "evals" / "suites" / "s" / "tasks" / "native.yaml").write_text(
+        "kind: trigger\ntool: Bash\npositive: [hi]\n"
+    )
+
+    fails = [c for c in validate_suite(load_config(root), "s") if c.status == "FAIL"]
+
+    assert [c.hint for c in fails] == [
+        "looks like a non-canonical mcp__<server>__<tool> spelling: files_search"
+    ]
+
+
 def _graded(result: RunResult) -> bool:
     """Whether the generated positive assertion passes on *result*."""
     return first_tool(FirstToolConfig(name=_TARGET), result, Path()).pass_
@@ -421,6 +446,7 @@ def test_codex_records_the_call_its_session_may_not_have():
     )
 
     assert _graded(result)
+    assert result.metrics.n_tool_calls == 1
 
 
 def test_copilot_cuts_a_positive_case_on_another_servers_tool():

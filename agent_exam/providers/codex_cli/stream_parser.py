@@ -84,9 +84,23 @@ _PATH_ALIAS_WARNING = "could not create PATH aliases"
 
 
 def drain_stderr(stderr: IO[bytes], state: StreamState) -> None:
-    for line in io.TextIOWrapper(stderr, encoding="utf-8", errors="replace"):
-        if _PATH_ALIAS_WARNING not in line:
-            state.stderr_tail.extend(line.encode())
+    # Reads raw chunks, not text lines, so a diagnostic written without a
+    # trailing newline still lands in stderr_tail as soon as it arrives,
+    # instead of waiting on a newline a hung child may never write.
+    while True:
+        chunk = stderr.read1(4096)
+        if not chunk:
+            break
+        state.stderr_tail.extend(chunk)
+
+
+def strip_path_alias_warning(text: str) -> str:
+    """Drop the ``_PATH_ALIAS_WARNING`` line from *text*, so it doesn't
+    crowd out whatever else went wrong in a rendered stderr tail.
+    """
+    return "\n".join(
+        line for line in text.splitlines() if _PATH_ALIAS_WARNING not in line
+    )
 
 
 def _dispatch(line: str, state: StreamState) -> None:

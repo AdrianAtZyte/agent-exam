@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
-    from ..config import Config
+    from ..config import Config, McpServerConfig
     from ..schemas import CheckResult, RunResult
 
 
@@ -48,11 +48,12 @@ class Provider:
     #: is not an allowlist should override :meth:`judge_agent_options`.
     safe_judge_tools: tuple[str, ...] = ()
 
-    #: Whether this harness can attach MCP servers, i.e. whether it
-    #: overrides :meth:`stage_mcp_config`. Kept as a flag so the preflight
-    #: can ask without importing the provider registry, which imports every
-    #: provider, which imports the module the preflight lives in.
     supports_mcp: ClassVar[bool] = False
+    """Whether this harness can attach MCP servers, i.e. whether it
+    overrides :meth:`stage_mcp_config`. Kept as a flag so the preflight
+    can ask without importing the provider registry, which imports every
+    provider, which imports the module the preflight lives in.
+    """
 
     reports_mcp_connections: ClassVar[bool] = True
     """Whether this harness announces per-server MCP connection status at
@@ -205,3 +206,14 @@ class Provider:
         configures servers such a harness will ignore.
         """
         return {}
+
+    def validate_mcp_servers(self, servers: dict[str, McpServerConfig]) -> list[str]:
+        """Provider-specific static checks on the MCP *servers* a run
+        attaches, beyond what :py:func:`agent_exam.mcp.preflight` already
+        checks generically. Return one problem description per server this
+        harness cannot actually attach as configured, so it surfaces before
+        the agent runs instead of when the first attempt stages it.
+
+        Default: no extra constraints.
+        """
+        return []

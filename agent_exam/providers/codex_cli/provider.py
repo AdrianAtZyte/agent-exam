@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from pydantic import BaseModel, field_validator
 
 from ..._models import _StrictModel
+from ...config import McpHttpServer
 from ...errors import FrameworkError, ProviderTimeout, UsageError
 from ...mcp import resolve_servers
 from ...ratelimit import with_retries
@@ -30,6 +31,7 @@ from .stream_parser import (
     drain_stderr,
     drain_stream,
     stream_error_messages,
+    strip_path_alias_warning,
 )
 from .transcripts import build_run_result, find_session_explicit_skill_invocation
 
@@ -229,9 +231,9 @@ class CodexCliProvider(Provider):
             )
 
         if process.returncode != 0 and not killed_on_skill:
-            stderr_tail = (
-                bytes(state.stderr_tail).decode("utf-8", errors="replace").strip()
-            )
+            stderr_tail = strip_path_alias_warning(
+                bytes(state.stderr_tail).decode("utf-8", errors="replace")
+            ).strip()
             # The reason for a fatal exit (auth failure, usage limit, …)
             # arrives as error events on the JSON stream; stderr is
             # typically just noise. Quote the stream errors, and rescue
@@ -355,18 +357,31 @@ class CodexCliProvider(Provider):
                     k: v for k, v in server.items() if k in ("command", "args", "env")
                 }
                 continue
+            problem = _codex_http_problem(name, cfg.mcp_servers[name])
+            if problem is not None:
+                raise UsageError(problem)
             table[name] = {"url": server["url"]}
             headers = cfg.mcp_servers[name].headers
             if headers:
-                table[name]["bearer_token_env_var"] = _bearer_token_env_var(
-                    name, headers
-                )
+                table[name]["bearer_token_env_var"] = _bearer_header_var(headers)
         if not table:
             return {}
         return {
             "codex_home": str(_stage_codex_home(run_tmp_root, table)),
             "mcp_server_names": sorted(table),
         }
+
+    def validate_mcp_servers(self, servers: dict) -> list[str]:
+        """Reject a ``type: sse`` or non-bearer HTTP server before the run
+        starts, rather than only when the first codex_cli attempt stages it.
+        """
+        problems = []
+        for name, server in servers.items():
+            if isinstance(server, McpHttpServer):
+                problem = _codex_http_problem(name, server)
+                if problem is not None:
+                    problems.append(problem)
+        return problems
 
     def _prepare_prefix_rules(self, cwd: Path, provider_options: dict) -> dict:
         prefix_rules = provider_options.get("prefix_rules")
@@ -670,24 +685,38 @@ def _preserve_failed_stream(raw_path: Path) -> Path:
 _BEARER_ENV_REF = re.compile(r"^Bearer\s+\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 
-def _bearer_token_env_var(name: str, headers: dict[str, str]) -> str:
-    """The variable an ``Authorization: Bearer ${VAR}`` header reads.
-
-    Codex sends no headers of its own; it authenticates against an HTTP MCP
-    server by reading a bearer token out of a named environment variable at
-    launch. So it wants *headers* as written rather than resolved, and any
-    other header has nowhere to go.
+def _bearer_header_var(headers: dict[str, str]) -> str | None:
+    """The variable an ``Authorization: Bearer ${VAR}`` header reads, or
+    ``None`` when *headers* isn't shaped exactly that way.
     """
     auth = next((v for k, v in headers.items() if k.lower() == "authorization"), None)
     match = _BEARER_ENV_REF.match(auth or "")
     if match is None or len(headers) > 1:
-        raise UsageError(
+        return None
+    return match.group(1)
+
+
+def _codex_http_problem(name: str, server: McpHttpServer) -> str | None:
+    """What keeps codex_cli from attaching HTTP *server* config as declared.
+
+    Codex speaks streamable HTTP only, not classic SSE. It also sends no
+    header of its own; it authenticates by reading a bearer token out of a
+    named environment variable at launch, so it wants *headers* as written
+    rather than resolved, and any header shape other than a single
+    ``Authorization: Bearer ${VAR}`` has nowhere to go.
+    """
+    if server.type == "sse":
+        return (
+            f"mcp_servers.{name}: codex_cli has no sse transport, only streamable http"
+        )
+    if server.headers and _bearer_header_var(server.headers) is None:
+        return (
             f"mcp_servers.{name}: codex_cli passes no HTTP header other than "
             'an `Authorization: "Bearer ${VAR}"` it reads from the '
             "environment; scope the task with `providers:` to leave codex_cli "
             "out of it"
         )
-    return match.group(1)
+    return None
 
 
 def _toml_key(value: str) -> str:

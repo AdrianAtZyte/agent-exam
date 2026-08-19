@@ -95,6 +95,24 @@ def test_a_positive_tool_trigger_that_ran_a_tool_is_settled():
     assert not _settled_on_timeout(task, _run(n_tool_calls=0))
 
 
+def test_a_positive_tool_trigger_with_only_native_tool_calls_is_settled():
+    """`n_tool_calls` alone isn't proof the target's server went unused — a
+    native tool call bumps it too, so this re-checks the trajectory itself
+    for an MCP call rather than trusting the counter blindly."""
+    task = _task(True, target_tool="mcp__files__search")
+
+    assert _settled_on_timeout(task, _run(7, tools=("Bash",)))
+
+
+def test_a_positive_tool_trigger_with_an_mcp_call_already_recorded_is_not_settled():
+    """A race that lets an MCP call slip past the kill signal leaves real
+    evidence in the trajectory — this must not paper over it as a routing
+    miss."""
+    task = _task(True, target_tool="mcp__files__search")
+
+    assert not _settled_on_timeout(task, _run(7, tools=("mcp__github__search",)))
+
+
 def test_a_negative_tool_trigger_keeps_the_timeout():
     """Nothing cuts a negative case short of the turn ending, so a timeout
     means the agent was still working — the target being absent so far says

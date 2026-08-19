@@ -22,11 +22,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .errors import AgentExamError, ProviderTimeout, UsageError
-from .mcp import connection_check
+from .mcp import connection_check, is_mcp_tool
 from .providers import get_provider
 from .schemas import RunResult
 from .serde import to_json_dict, write_json
 from .tasks import _FIXTURE_EMPTY_DIR_MARKERS, Task
+from .trajectory_walk import iter_tool_calls
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -79,7 +80,9 @@ def _settled_on_timeout(task: Task, run_result: RunResult | None) -> bool:
     if not task.should_trigger:
         return False
     if task.target_tool:
-        return True
+        return not any(
+            is_mcp_tool(call.name) for call in iter_tool_calls(run_result.trajectory)
+        )
     return not any(turn.skill_invocations for turn in run_result.trajectory)
 
 
@@ -167,10 +170,26 @@ def _mcp_options(
     sibling of the attempt cwd, never inside it, so a server block holding a
     credential stays out of the archived cwd.
     """
-    key = (provider.name, run_tmp_root, None if servers is None else tuple(servers))
+    key = (
+        provider.name,
+        run_tmp_root,
+        None if servers is None else tuple(sorted(servers)),
+    )
     if key not in _MCP_STAGING:
         _MCP_STAGING[key] = provider.stage_mcp_config(run_tmp_root, cfg, servers)
     return _MCP_STAGING[key]
+
+
+def forget_mcp_staging(run_tmp_root: Path) -> None:
+    """Drop every `_MCP_STAGING` entry rendered under *run_tmp_root*.
+
+    `run_tmp_root` is a fresh temp dir per run, so once a run finishes
+    nothing can ever look its entries up again — call this when it does,
+    or the serial path (which staged in this same process) leaks one
+    entry per run forever.
+    """
+    for key in [k for k in _MCP_STAGING if k[1] == run_tmp_root]:
+        del _MCP_STAGING[key]
 
 
 def _execute_attempt(

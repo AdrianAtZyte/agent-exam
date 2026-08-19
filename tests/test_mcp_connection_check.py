@@ -153,20 +153,44 @@ def test_opencode_connected_status_does_not_regress_on_a_stray_found_line():
 def test_codex_drops_the_path_alias_warning_from_the_stderr_tail():
     """A staged CODEX_HOME is always a temp dir, so codex warns on every run
     and would otherwise be the whole tail of an unrelated failure."""
-    from agent_exam.providers.codex_cli.stream_parser import StreamState, drain_stderr
+    from agent_exam.providers.codex_cli.stream_parser import strip_path_alias_warning
 
-    state = StreamState()
-    drain_stderr(
-        io.BytesIO(
-            b"WARNING: proceeding, even though we could not create PATH "
-            b"aliases: Refusing to create helper binaries under temporary "
-            b'dir "/tmp" (codex_home: AbsolutePathBuf("/tmp/x"))\n'
-            b"codex: something broke\n"
-        ),
-        state,
+    text = (
+        "WARNING: proceeding, even though we could not create PATH "
+        "aliases: Refusing to create helper binaries under temporary "
+        'dir "/tmp" (codex_home: AbsolutePathBuf("/tmp/x"))\n'
+        "codex: something broke\n"
     )
 
-    assert bytes(state.stderr_tail).decode() == "codex: something broke\n"
+    assert strip_path_alias_warning(text) == "codex: something broke"
+
+
+def test_codex_stderr_tail_captures_bytes_before_a_trailing_newline_arrives():
+    """A hung child that writes a diagnostic with no newline yet must not
+    leave the tail waiting on one that may never come."""
+    import os
+    import threading
+    import time
+
+    from agent_exam.providers.codex_cli.stream_parser import StreamState, drain_stderr
+
+    read_fd, write_fd = os.pipe()
+    state = StreamState()
+    thread = threading.Thread(
+        target=drain_stderr, args=(os.fdopen(read_fd, "rb"), state)
+    )
+    thread.start()
+    try:
+        os.write(write_fd, b"codex: stalled waiting on a dead mcp server")
+        deadline = time.monotonic() + 2.0
+        while not state.stderr_tail and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert (
+            bytes(state.stderr_tail) == b"codex: stalled waiting on a dead mcp server"
+        )
+    finally:
+        os.close(write_fd)
+        thread.join(timeout=2.0)
 
 
 def test_check_fails_on_a_server_that_did_not_connect():

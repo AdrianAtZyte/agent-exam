@@ -178,9 +178,9 @@ def _planned(cfg: Config, tasks: Iterable[Task]) -> dict[str, McpServerConfig]:
     names: set[str] = set()
     for task in tasks:
         if task.mcp_servers is None:
-            return dict(cfg.mcp_servers)
+            return _selected(cfg, None)
         names.update(task.mcp_servers)
-    return {name: cfg.mcp_servers[name] for name in names}
+    return _selected(cfg, sorted(names))
 
 
 def preflight(
@@ -226,6 +226,16 @@ def preflight(
             )
         )
 
+    problems = provider.validate_mcp_servers(servers)
+    if problems:
+        results.append(
+            CheckResult(
+                name="mcp server configuration",
+                status="FAIL",
+                hint="; ".join(problems),
+            )
+        )
+
     missing_cmd = sorted(
         name
         for name, server in servers.items()
@@ -261,7 +271,7 @@ def preflight(
             )
         )
 
-    if not missing_cmd and not missing_vars:
+    if not problems and not missing_cmd and not missing_vars:
         results.append(
             CheckResult(
                 name="mcp servers",

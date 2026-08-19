@@ -286,3 +286,34 @@ def test_preflight_is_silent_when_no_task_selects_a_server(tmp_path):
     cfg = load_config(_project(tmp_path, _SCOPED_CONFIG))
 
     assert preflight(cfg, get_provider("claude_code"), [_task(tmp_path, "[]")]) == []
+
+
+def test_preflight_rejects_a_codex_header_it_cannot_send_before_the_run(
+    tmp_path, monkeypatch
+):
+    """codex_cli's own header-shape constraint surfaces at preflight, not
+    only when the first attempt stages the config."""
+    monkeypatch.setenv("MCP_TOKEN", "s3cret")
+    root = _project(
+        tmp_path,
+        _SCOPED_CONFIG.replace('Authorization: "Bearer ${MCP_TOKEN}"', "X-Key: k"),
+    )
+    cfg = load_config(root)
+
+    results = preflight(cfg, get_provider("codex_cli"))
+
+    by_name = {r.name: r for r in results}
+    assert by_name["mcp server configuration"].status == "FAIL"
+    assert "remote" in by_name["mcp server configuration"].hint
+
+
+def test_preflight_rejects_a_codex_sse_server_before_the_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("MCP_TOKEN", "s3cret")
+    root = _project(tmp_path, _SCOPED_CONFIG.replace("type: http", "type: sse"))
+    cfg = load_config(root)
+
+    results = preflight(cfg, get_provider("codex_cli"))
+
+    by_name = {r.name: r for r in results}
+    assert by_name["mcp server configuration"].status == "FAIL"
+    assert "sse" in by_name["mcp server configuration"].hint

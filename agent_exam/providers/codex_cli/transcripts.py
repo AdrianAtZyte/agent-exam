@@ -140,6 +140,7 @@ def _build_minimal_trigger_result(
             cost_usd=None,
             peak_context=state.input_tokens + state.output_tokens,
             turn_count=1,
+            n_tool_calls=sum(1 for _ in iter_tool_calls(trajectory)),
             raw={
                 "reasoning_output_tokens": state.reasoning_output_tokens,
                 "minimal_trigger_result": True,

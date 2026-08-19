@@ -300,6 +300,16 @@ def test_codex_refuses_a_header_it_cannot_send(cfg, tmp_path):
         CodexCliProvider().stage_mcp_config(tmp_path, load_config(root), ["remote"])
 
 
+def test_codex_refuses_an_sse_server(cfg, tmp_path):
+    root = tmp_path / "proj"
+    (root / "evals" / "config.yaml").write_text(
+        dedent(_CONFIG).replace("type: http", "type: sse")
+    )
+
+    with pytest.raises(UsageError, match=r"remote.*sse"):
+        CodexCliProvider().stage_mcp_config(tmp_path, load_config(root), ["remote"])
+
+
 def test_copilot_argv_carries_the_config_path(cfg, tmp_path):
     options = CopilotCliProvider().stage_mcp_config(tmp_path, cfg)
 

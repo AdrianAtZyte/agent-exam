@@ -21,7 +21,7 @@ from .hooks import call_pre_run_hook
 from .ids import new_run_id
 from .judge import JudgeCache, JudgeCall
 from .mcp import preflight as mcp_preflight
-from .pool import AttemptOutcome, PoolPlan, run_plan
+from .pool import AttemptOutcome, PoolPlan, forget_mcp_staging, run_plan
 from .providers import get_provider
 from .providers.skill_staging import discover_skills
 from .report import AttemptReport, report_to_dict, score_attempt
@@ -584,6 +584,7 @@ def run(cfg: Config, req: RunRequest) -> int:
             click.echo(f"rate-limit exhausted: {exc}", err=True)
     finally:
         heartbeat.stop()
+        forget_mcp_staging(run_tmp_root)
         if req.cleanup_tmp_root:
             shutil.rmtree(run_tmp_root, ignore_errors=True)
 
