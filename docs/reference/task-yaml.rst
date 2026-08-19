@@ -235,8 +235,10 @@ including in subagents.
         name: Bash
 
 ``name``
-    Tool name. These are harness-specific, so usually pair this with
-    ``providers:``.
+    Tool name. Native tool names are harness-specific, so usually pair this
+    with ``providers:``; a tool served by a declared MCP server reaches the
+    trajectory as ``mcp__<server>__<tool>`` whichever harness ran, so one line
+    grades everywhere.
 
 ``tool_not_called``
 -------------------
@@ -491,10 +493,6 @@ Normalized tool names:
 
 Custom and freeform tools keep their own names. ``spawn_agent`` and ``wait``
 cover subagent spawning and waiting.
-
-A tool served by a declared MCP server reaches the trajectory as
-``mcp__<server>__<tool>``, whichever harness ran, so one ``tool_called:`` line
-grades everywhere.
 
 ``copilot_cli``
 ---------------

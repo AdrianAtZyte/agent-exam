@@ -327,8 +327,8 @@ Runs are hermetic: the servers configured here are the only ones the agent
 sees, and the ones set up in the developer's own harness config are left out.
 
 Assertions grade MCP tool calls through the ordinary ``tool_called``,
-``tool_not_called`` and ``tool_count`` types. The tool *names* are
-harness-specific, so pair them with ``providers:``.
+``tool_not_called`` and ``tool_count`` types, naming the tool as
+``mcp__<server>__<tool>`` whichever harness ran.
 
 A full example
 ==============
