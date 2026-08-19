@@ -217,7 +217,7 @@ class ClaudeCodeProvider(Provider):
                             explicit_cost_usd=state.total_cost_usd,
                             stream_detected_skill=state.detected_skill,
                             stream_detected_tool=state.detected_tool,
-                            mcp_servers=state.mcp_servers,
+                            mcp_server_status=state.mcp_server_status,
                         )
                 except Exception:
                     partial = None
@@ -264,7 +264,7 @@ class ClaudeCodeProvider(Provider):
             explicit_cost_usd=state.total_cost_usd,
             stream_detected_skill=state.detected_skill,
             stream_detected_tool=state.detected_tool,
-            mcp_servers=state.mcp_servers,
+            mcp_server_status=state.mcp_server_status,
         )
 
     def _wait_with_skill_kill(
@@ -416,7 +416,9 @@ class ClaudeCodeProvider(Provider):
         transcript = probe_result.raw_transcript_path
         results = [hermetic_check(transcript)]
         if cfg is not None and cfg.mcp_servers:
-            results.append(connection_check(probe_result.mcp_servers, cfg.mcp_servers))
+            results.append(
+                connection_check(probe_result.mcp_server_status, cfg.mcp_servers)
+            )
         if cfg is not None:
             cfg_provider = cfg.provider(self.name)
             results.append(

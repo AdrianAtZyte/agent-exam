@@ -52,7 +52,7 @@ class AttemptOutcome:
     attempt_n: int
     attempt_cwd: Path
     run_result: RunResult | None
-    error_verdict: str | None  # "timeout" | None
+    error_verdict: str | None  # "timeout" | "error" | None
 
 
 def _settled_on_timeout(task: Task, run_result: RunResult | None) -> bool:
@@ -203,7 +203,6 @@ def _execute_attempt(
     )
     if task.target_skill:
         provider_options["target_skill"] = task.target_skill
-    stop_early = task.stop_on_first_skill
     if task.target_tool:
         provider_options["target_tool"] = task.target_tool
     if task.should_trigger is False:
@@ -278,7 +277,7 @@ def _execute_attempt(
                 model=model,
                 cwd=runtime_cwd,
                 provider_options=provider_options,
-                stop_on_first_skill=stop_early,
+                stop_on_first_skill=task.stop_on_first_skill,
                 timeout_seconds=timeout,
             )
         finally:
@@ -299,7 +298,7 @@ def _execute_attempt(
     # grades as a skill failure rather than the setup failure it is.
     if run_result is not None:
         connected = connection_check(
-            run_result.mcp_servers, provider_options.get("mcp_server_names") or ()
+            run_result.mcp_server_status, provider_options.get("mcp_server_names") or ()
         )
         if connected.status == "FAIL":
             error_verdict = "error"
@@ -355,7 +354,7 @@ def _execute_attempt(
                 "mcp_servers_attached": list(
                     provider_options.get("mcp_server_names") or ()
                 ),
-                "mcp_servers": run_result.mcp_servers,
+                "mcp_server_status": run_result.mcp_server_status,
             },
         )
         write_json(

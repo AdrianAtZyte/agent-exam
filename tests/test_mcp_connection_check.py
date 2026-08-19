@@ -32,7 +32,7 @@ def _drain(events: list[dict]) -> StreamState:
 def test_stream_records_server_statuses():
     state = _drain([_INIT, {"type": "result", "total_cost_usd": 0.1}])
 
-    assert state.mcp_servers == {"files": "connected", "remote": "failed"}
+    assert state.mcp_server_status == {"files": "connected", "remote": "failed"}
     # The init event still seeds the session id, and the result event is
     # still parsed after it.
     assert state.session_id == "abc"
@@ -42,7 +42,7 @@ def test_stream_records_server_statuses():
 def test_stream_records_nothing_without_servers():
     state = _drain([{"type": "system", "subtype": "init", "mcp_servers": []}])
 
-    assert state.mcp_servers == {}
+    assert state.mcp_server_status == {}
 
 
 def test_check_fails_on_a_server_that_did_not_connect():
@@ -100,7 +100,7 @@ def _run_with_statuses(root, monkeypatch, statuses):
 
     def with_statuses(self, *args, **kwargs):
         result = invoke(self, *args, **kwargs)
-        result.mcp_servers = statuses
+        result.mcp_server_status = statuses
         return result
 
     monkeypatch.setattr(DummyProvider, "invoke", with_statuses)
@@ -133,7 +133,7 @@ def test_attempt_errors_when_a_server_did_not_connect(tmp_path, monkeypatch):
 
     assert exit_code != 0
     assert [a["verdict"] for a in report["attempts"]] == ["error"]
-    assert attempt["mcp_servers"] == {"files": "failed"}
+    assert attempt["mcp_server_status"] == {"files": "failed"}
 
 
 def test_attempt_is_graded_when_every_server_connected(tmp_path, monkeypatch):
@@ -143,4 +143,4 @@ def test_attempt_is_graded_when_every_server_connected(tmp_path, monkeypatch):
 
     assert exit_code == 0
     assert [a["verdict"] for a in report["attempts"]] == ["pass"]
-    assert attempt["mcp_servers"] == {"files": "connected"}
+    assert attempt["mcp_server_status"] == {"files": "connected"}

@@ -63,6 +63,8 @@ def test_run_attaches_nothing_and_stays_informational(tmp_path, monkeypatch):
     run_json = json.loads((run_dir / "run.json").read_text())
     assert run_json["run_mode"] == "no-mcp"
     assert run_json["config"]["no_mcp"] is True
+    # The record says what the run withheld.
+    assert run_json["config"]["mcp_servers"] == ["files"]
     # Nothing was rendered, so nothing was attached.
     tmp_root = Path(run_json["config"]["tmp_root"])
     assert not list(tmp_root.glob("*.mcp.json"))

@@ -378,6 +378,10 @@ def run(cfg: Config, req: RunRequest) -> int:
             + "\n  ".join(f"{c.name}: {c.hint}" for c in validation_fails)
         )
 
+    # Captured before --no-mcp wipes the definitions below, so the run
+    # record says which servers it withheld.
+    mcp_servers_declared = sorted(cfg.mcp_servers)
+
     if req.no_mcp:
         if not cfg.mcp_servers:
             raise UsageError(
@@ -604,7 +608,7 @@ def run(cfg: Config, req: RunRequest) -> int:
                 "without_skill": req.without_skill,
                 "no_skills": req.no_skills,
                 "no_mcp": req.no_mcp,
-                "mcp_servers": sorted(cfg.mcp_servers),
+                "mcp_servers": mcp_servers_declared,
                 "no_triggers": drop_triggers,
                 "skills_excluded": sorted(skills_to_exclude),
                 "tags": sorted(req.tags),

@@ -99,7 +99,7 @@ class RunResult:
     model: str | None = None
     # MCP server name -> connection status, as the harness announced it at
     # session start. `None` when the harness reports nothing.
-    mcp_servers: dict[str, str] | None = None
+    mcp_server_status: dict[str, str] | None = None
 
 
 @dataclass

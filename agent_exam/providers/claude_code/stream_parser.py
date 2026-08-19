@@ -27,7 +27,7 @@ class StreamState:
     # MCP server name -> connection status, from the `system/init` event.
     # A server that fails to start leaves the agent without its tools and
     # nothing else says so; doctor reports it (see `mcp.connection_check`).
-    mcp_servers: dict[str, str] | None = None
+    mcp_server_status: dict[str, str] | None = None
 
     # Skill-detection fields (driven by drain_stream when
     # skill_detection_enabled=True). `kill_signal` fires on a match so the
@@ -93,7 +93,7 @@ def _dispatch(line: str, state: StreamState) -> None:
     if event.get("type") == "system" and event.get("subtype") == "init":
         servers = event.get("mcp_servers")
         if isinstance(servers, list):
-            state.mcp_servers = {
+            state.mcp_server_status = {
                 str(s.get("name")): str(s.get("status"))
                 for s in servers
                 if isinstance(s, dict) and s.get("name")

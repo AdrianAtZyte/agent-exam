@@ -399,7 +399,7 @@ def load_run_result(
     explicit_cost_usd: float | None = None,
     stream_detected_skill: SkillInvocation | None = None,
     stream_detected_tool: str | None = None,
-    mcp_servers: dict[str, str] | None = None,
+    mcp_server_status: dict[str, str] | None = None,
 ) -> RunResult:
     """Parse a transcript on disk into a RunResult (trajectory + metrics).
 
@@ -528,7 +528,7 @@ def load_run_result(
         trajectory=trajectory,
         metrics=metrics,
         raw_transcript_path=transcript_path,
-        mcp_servers=mcp_servers,
+        mcp_server_status=mcp_server_status,
     )
 
 
