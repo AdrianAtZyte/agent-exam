@@ -476,7 +476,9 @@ def run(cfg: Config, req: RunRequest) -> int:
 
     # MCP servers whose command or credentials can't be resolved would only
     # surface as the agent silently missing its tools, so refuse the run.
-    mcp_checks = mcp_preflight(cfg, provider)
+    # Only the servers the planned tasks attach are checked, so a run that
+    # leaves a credentialed server out doesn't need its credential.
+    mcp_checks = mcp_preflight(cfg, provider, tasks)
     mcp_fails = [c for c in mcp_checks if c.status == "FAIL"]
     if mcp_fails:
         raise UsageError(

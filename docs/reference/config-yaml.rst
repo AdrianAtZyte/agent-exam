@@ -317,7 +317,9 @@ the standard MCP JSON, so a block copies over from the server's README:
 
 ``${VAR}`` in an ``env`` or ``headers`` value is substituted from the
 environment agent-exam itself runs in, so credentials stay out of the file. A
-variable that is not set fails the run at its start, before any trial.
+variable that is not set fails the run at its start, before any trial — only
+for the servers that run's tasks attach, so a credential is needed by the runs
+that use it and not by every run.
 
 Tasks attach every configured server unless they name a subset with their own
 ``mcp_servers:`` — see :doc:`task-yaml`. Definitions belong here rather than in

@@ -167,3 +167,61 @@ def test_validation_rejects_an_undeclared_server(tmp_path):
 
     assert [c.name for c in fails] == ["s: mcp servers declared"]
     assert "flies" in fails[0].hint
+
+
+_SCOPED_CONFIG = """\
+default_harness: claude_code
+mcp_servers:
+  local:
+    command: sh
+  remote:
+    type: http
+    url: https://example.test/mcp
+    headers:
+      Authorization: "Bearer ${MCP_TOKEN}"
+"""
+
+
+def _task(tmp_path: Path, servers: str, name: str = "t"):
+    p = tmp_path / f"{name}.yaml"
+    p.write_text(f"kind: execute\nprompt: x\nmcp_servers: {servers}\nassertions: []\n")
+    return load_task(p, "s")[0]
+
+
+def test_preflight_skips_servers_no_task_selects(tmp_path, monkeypatch):
+    monkeypatch.delenv("MCP_TOKEN", raising=False)
+    cfg = load_config(_project(tmp_path, _SCOPED_CONFIG))
+    tasks = [_task(tmp_path, "[local]")]
+
+    results = preflight(cfg, get_provider("claude_code"), tasks)
+
+    assert [r.status for r in results] == ["OK"]
+
+
+def test_preflight_covers_every_server_a_task_selects(tmp_path, monkeypatch):
+    monkeypatch.delenv("MCP_TOKEN", raising=False)
+    cfg = load_config(_project(tmp_path, _SCOPED_CONFIG))
+    tasks = [_task(tmp_path, "[local]"), _task(tmp_path, "[remote]", "b")]
+
+    results = preflight(cfg, get_provider("claude_code"), tasks)
+
+    by_name = {r.name: r for r in results}
+    assert by_name["mcp server environment"].status == "FAIL"
+
+
+def test_preflight_checks_everything_for_a_task_without_a_subset(tmp_path, monkeypatch):
+    monkeypatch.delenv("MCP_TOKEN", raising=False)
+    cfg = load_config(_project(tmp_path, _SCOPED_CONFIG))
+    p = tmp_path / "all.yaml"
+    p.write_text("kind: execute\nprompt: x\nassertions: []\n")
+    tasks = [_task(tmp_path, "[local]"), load_task(p, "s")[0]]
+
+    results = preflight(cfg, get_provider("claude_code"), tasks)
+
+    assert any(r.status == "FAIL" for r in results)
+
+
+def test_preflight_is_silent_when_no_task_selects_a_server(tmp_path):
+    cfg = load_config(_project(tmp_path, _SCOPED_CONFIG))
+
+    assert preflight(cfg, get_provider("claude_code"), [_task(tmp_path, "[]")]) == []

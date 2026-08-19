@@ -16,9 +16,10 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
     from pathlib import Path
 
-    from .config import Config
+    from .config import Config, McpServerConfig
     from .providers.base import Provider
     from .schemas import Turn
+    from .tasks import Task
 
 _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -141,16 +142,32 @@ def canonicalize_tool_names(trajectory: list[Turn], servers: Iterable[str]) -> N
         call.name = canonical_tool_name(call.name, servers)
 
 
-def preflight(cfg: Config, provider: Provider) -> list[CheckResult]:
-    """Static checks for the configured MCP servers: stdio commands resolve
-    on ``PATH``, referenced environment variables are set, and the selected
+def _planned(cfg: Config, tasks: Iterable[Task]) -> dict[str, McpServerConfig]:
+    names: set[str] = set()
+    for task in tasks:
+        if task.mcp_servers is None:
+            return dict(cfg.mcp_servers)
+        names.update(task.mcp_servers)
+    return {name: cfg.mcp_servers[name] for name in names}
+
+
+def preflight(
+    cfg: Config, provider: Provider, tasks: Iterable[Task] | None = None
+) -> list[CheckResult]:
+    """Static checks for the MCP servers in play: stdio commands resolve on
+    ``PATH``, referenced environment variables are set, and the selected
     harness can actually attach servers.
+
+    *tasks* narrows the checks to the servers those tasks attach between
+    them, so a credentialed server that no selected task asks for does not
+    stand in the way of the run. ``None`` checks every configured server.
     """
     # Imported here because the provider registry imports every provider, and
     # the providers import this module.
     from .providers.base import Provider as _Base
 
-    if not cfg.mcp_servers:
+    servers = cfg.mcp_servers if tasks is None else _planned(cfg, tasks)
+    if not servers:
         return []
 
     results: list[CheckResult] = []
@@ -162,7 +179,7 @@ def preflight(cfg: Config, provider: Provider) -> list[CheckResult]:
                 status="WARN",
                 hint=(
                     f"{provider.name} attaches no MCP servers, so the "
-                    f"{len(cfg.mcp_servers)} configured under mcp_servers: "
+                    f"{len(servers)} configured under mcp_servers: "
                     "do nothing in this run"
                 ),
             )
@@ -170,7 +187,7 @@ def preflight(cfg: Config, provider: Provider) -> list[CheckResult]:
 
     missing_cmd = sorted(
         name
-        for name, server in cfg.mcp_servers.items()
+        for name, server in servers.items()
         if isinstance(server, McpStdioServer) and not shutil.which(server.command)
     )
     if missing_cmd:
@@ -185,7 +202,7 @@ def preflight(cfg: Config, provider: Provider) -> list[CheckResult]:
     missing_vars = sorted(
         {
             var
-            for server in cfg.mcp_servers.values()
+            for server in servers.values()
             for value in (
                 *getattr(server, "env", {}).values(),
                 *getattr(server, "headers", {}).values(),
@@ -208,7 +225,7 @@ def preflight(cfg: Config, provider: Provider) -> list[CheckResult]:
             CheckResult(
                 name="mcp servers",
                 status="OK",
-                hint=f"{len(cfg.mcp_servers)} configured",
+                hint=f"{len(servers)} configured",
             )
         )
     return results
