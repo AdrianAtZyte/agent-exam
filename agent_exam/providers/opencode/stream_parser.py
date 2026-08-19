@@ -75,15 +75,47 @@ def drain_stream(
 _MCP_LOG = re.compile(r"\bservice=mcp\b.*?\bkey=(\S+)")
 _MCP_CONNECTED = "create() successfully created client"
 _ROUTINE_LOG_LEVELS = ("INFO ", "DEBUG ")
+_ROUTINE_PREFIX_LEN = max(len(level) for level in _ROUTINE_LOG_LEVELS)
 
 
 def drain_stderr(stderr: IO[bytes], state: StreamState) -> None:
-    for line in io.TextIOWrapper(stderr, encoding="utf-8", errors="replace"):
-        _dispatch_log(line, state)
-        # Routine logging is on so that the MCP statuses come through;
-        # keeping it out of the tail leaves that for whatever went wrong.
-        if not line.startswith(_ROUTINE_LOG_LEVELS):
-            state.stderr_tail.extend(line.encode())
+    """Read raw chunks, not text lines, dispatching each complete log line
+    to `_dispatch_log` and folding routine ones out of the tail.
+
+    A line with no trailing newline yet — e.g. a hung MCP server that wrote
+    a diagnostic mid-line — would otherwise sit invisible until a newline
+    or EOF a hung child may never produce. It is flushed into the tail as
+    soon as enough of it has arrived to rule out a routine log level.
+    """
+    buf = bytearray()
+    flushed = 0
+    while True:
+        chunk = stderr.read1(4096)
+        if not chunk:
+            break
+        buf.extend(chunk)
+        while True:
+            newline_idx = buf.find(b"\n")
+            if newline_idx == -1:
+                break
+            raw_line = bytes(buf[: newline_idx + 1])
+            del buf[: newline_idx + 1]
+            line = raw_line.decode("utf-8", errors="replace")
+            _dispatch_log(line, state)
+            if not line.startswith(_ROUTINE_LOG_LEVELS):
+                state.stderr_tail.extend(raw_line[flushed:])
+            flushed = 0
+        pending = bytes(buf)
+        if len(pending) >= _ROUTINE_PREFIX_LEN and len(pending) > flushed:
+            pending_text = pending.decode("utf-8", errors="replace")
+            if not pending_text.startswith(_ROUTINE_LOG_LEVELS):
+                state.stderr_tail.extend(pending[flushed:])
+                flushed = len(pending)
+    pending = bytes(buf)
+    if len(pending) > flushed:
+        pending_text = pending.decode("utf-8", errors="replace")
+        if not pending_text.startswith(_ROUTINE_LOG_LEVELS):
+            state.stderr_tail.extend(pending[flushed:])
 
 
 def _dispatch_log(line: str, state: StreamState) -> None:
@@ -131,7 +163,11 @@ def _dispatch(line: str, state: StreamState) -> None:
     part = event.get("part") or {}
 
     if event_type == "step_finish":
-        if state.skill_detection_enabled and state.negative_trigger_mode:
+        if (
+            state.skill_detection_enabled
+            and state.negative_trigger_mode
+            and state.target_tool is None
+        ):
             reason = part.get("reason")
             if reason == "stop" and state.detected_skill is None:
                 state.kill_signal.set()

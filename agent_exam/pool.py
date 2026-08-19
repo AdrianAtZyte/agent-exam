@@ -86,6 +86,19 @@ def _settled_on_timeout(task: Task, run_result: RunResult | None) -> bool:
     return not any(turn.skill_invocations for turn in run_result.trajectory)
 
 
+def _target_tool_already_called(task: Task, run_result: RunResult) -> bool:
+    """Whether *task*'s target tool was already called in *run_result*.
+
+    A positive tool trigger settles as soon as its target is called, so a
+    sibling MCP server reported as broken afterwards didn't stand in the
+    way of the behavior actually under test — that shouldn't erase a
+    decisive pass.
+    """
+    return task.target_tool is not None and any(
+        call.name == task.target_tool for call in iter_tool_calls(run_result.trajectory)
+    )
+
+
 _FIXTURE_COPY_EXCLUDES = shutil.ignore_patterns(*_FIXTURE_EMPTY_DIR_MARKERS)
 
 
@@ -326,7 +339,9 @@ def _execute_attempt(
         connected = connection_check(
             run_result.mcp_server_status, provider_options.get("mcp_server_names") or ()
         )
-        if connected.status == "FAIL":
+        if connected.status == "FAIL" and not _target_tool_already_called(
+            task, run_result
+        ):
             error_verdict = "error"
             print(
                 f"attempt error {task.suite}::{task.name} "

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
     from .config import Config, McpServerConfig
     from .providers.base import Provider
-    from .schemas import Turn
+    from .schemas import RunResult, Turn
     from .tasks import Task
 
 _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -123,6 +123,17 @@ def canonical_tool_server(name: str) -> str | None:
     return server or None
 
 
+def _match_server(bare: str, servers: list[str]) -> tuple[str, str] | None:
+    # Longest first, so a server named `github` doesn't claim a tool of
+    # `github-actions`.
+    for server in servers:
+        for separator in _SEPARATORS:
+            prefix = f"{server}{separator}"
+            if bare.startswith(prefix):
+                return server, bare[len(prefix) :]
+    return None
+
+
 def canonical_tool_name(name: str, servers: Iterable[str]) -> str:
     """Rewrite an MCP tool name into Claude Code's ``mcp__<server>__<tool>``.
 
@@ -137,15 +148,18 @@ def canonical_tool_name(name: str, servers: Iterable[str]) -> str:
     """
     if name.startswith(_CANONICAL_PREFIX):
         return name
-    bare = name[4:] if name.startswith(("mcp_", "mcp-")) else name
-    # Longest first, so a server named `github` doesn't claim a tool of
-    # `github-actions`.
-    for server in sorted(servers, key=len, reverse=True):
-        for separator in _SEPARATORS:
-            prefix = f"{server}{separator}"
-            if bare.startswith(prefix):
-                return join_canonical_tool_name(server, bare[len(prefix) :])
-    return name
+    servers = sorted(servers, key=len, reverse=True)
+    match = _match_server(name, servers)
+    if match is None and name.startswith(("mcp_", "mcp-")):
+        # A generic `mcp_`/`mcp-` marker some harnesses add on top of the
+        # server name, tried only once the name itself matches no
+        # configured server outright, so a server actually named `mcp`
+        # still resolves from the name as given.
+        match = _match_server(name[4:], servers)
+    if match is None:
+        return name
+    server, tool = match
+    return join_canonical_tool_name(server, tool)
 
 
 def is_mcp_tool(name: str) -> bool:
@@ -339,3 +353,15 @@ def connection_check(
         status="OK",
         hint=f"{len(statuses)} connected",
     )
+
+
+def probe_connection_check(
+    probe_result: RunResult, cfg: Config | None
+) -> list[CheckResult]:
+    """The `probe_checks` MCP connection check, when *cfg* attaches any
+    servers — shared by every provider whose round-trip probe reports
+    connection status.
+    """
+    if cfg is None or not cfg.mcp_servers:
+        return []
+    return [connection_check(probe_result.mcp_server_status, cfg.mcp_servers)]

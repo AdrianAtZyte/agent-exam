@@ -12,7 +12,7 @@ from claude_measure_usage.parse import find_transcript_path
 
 from ..._models import _StrictModel
 from ...errors import FrameworkError, ProviderTimeout, RateLimitError
-from ...mcp import connection_check, stage_mcp_json
+from ...mcp import probe_connection_check, stage_mcp_json
 from ...ratelimit import with_retries
 from ...schemas import CheckResult, RunResult
 from ..base import Provider
@@ -410,10 +410,7 @@ class ClaudeCodeProvider(Provider):
         settings.json)."""
         transcript = probe_result.raw_transcript_path
         results = [hermetic_check(transcript)]
-        if cfg is not None and cfg.mcp_servers:
-            results.append(
-                connection_check(probe_result.mcp_server_status, cfg.mcp_servers)
-            )
+        results.extend(probe_connection_check(probe_result, cfg))
         if cfg is not None:
             cfg_provider = cfg.provider(self.name)
             results.append(

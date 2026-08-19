@@ -4,6 +4,7 @@ import json
 import subprocess
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -11,7 +12,7 @@ from pydantic import BaseModel, field_validator
 
 from ..._models import _StrictModel
 from ...errors import FrameworkError, ProviderTimeout
-from ...mcp import connection_check, resolve_servers
+from ...mcp import probe_connection_check, resolve_servers
 from ...ratelimit import with_retries
 from ...schemas import CheckResult, RunResult
 from ..base import Provider
@@ -147,6 +148,11 @@ class OpenCodeProvider(Provider):
             config["mcp"] = provider_options["mcp_config"]
         if config:
             env["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
+        if provider_options.get("xdg_config_home"):
+            # OpenCode merges the developer's own ~/.config/opencode/opencode.json
+            # into OPENCODE_CONFIG_CONTENT rather than being replaced by it, so
+            # keeping the run hermetic means pointing it at an empty config dir.
+            env["XDG_CONFIG_HOME"] = str(provider_options["xdg_config_home"])
         # Overrides last, so a task can still replace anything set above.
         apply_env_overrides(env, provider_options.get("env_overrides"))
 
@@ -270,7 +276,19 @@ class OpenCodeProvider(Provider):
             mcp[name] = entry
         if not mcp:
             return {}
-        return {"mcp_config": mcp, "mcp_server_names": sorted(mcp)}
+        # OpenCode always merges ~/.config/opencode/opencode.json into the
+        # env-supplied config rather than being replaced by it, so a
+        # developer's own MCP servers would otherwise leak into every run.
+        # An isolated, empty XDG_CONFIG_HOME (see `_invoke_once`) keeps it
+        # out — rendered next to the attempt cwd, not inside it, like the
+        # MCP config itself.
+        xdg_config_home = run_tmp_root / f"{uuid.uuid4().hex[:12]}.opencode-config"
+        xdg_config_home.mkdir(parents=True, exist_ok=True)
+        return {
+            "mcp_config": mcp,
+            "mcp_server_names": sorted(mcp),
+            "xdg_config_home": xdg_config_home,
+        }
 
     def _wait_with_skill_kill(
         self, process: subprocess.Popen, state: StreamState, timeout_seconds: int
@@ -351,10 +369,7 @@ class OpenCodeProvider(Provider):
         from .doctor_probes import check_probe_model
 
         results = [check_probe_model(probe_result)]
-        if cfg is not None and cfg.mcp_servers:
-            results.append(
-                connection_check(probe_result.mcp_server_status, cfg.mcp_servers)
-            )
+        results.extend(probe_connection_check(probe_result, cfg))
         return results
 
     def pre_run_warnings(self, cfg=None) -> list[CheckResult]:

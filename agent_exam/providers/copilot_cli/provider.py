@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from ..._models import _StrictModel
 from ...errors import FrameworkError, ProviderTimeout
-from ...mcp import connection_check, stage_mcp_json
+from ...mcp import probe_connection_check, stage_mcp_json
 from ...ratelimit import with_retries
 from ..base import Provider
 from ..child_env import build_child_env
@@ -283,10 +283,7 @@ class CopilotCliProvider(Provider):
         from .doctor_probes import check_probe_model
 
         results = [check_probe_model(probe_result)]
-        if cfg is not None and cfg.mcp_servers:
-            results.append(
-                connection_check(probe_result.mcp_server_status, cfg.mcp_servers)
-            )
+        results.extend(probe_connection_check(probe_result, cfg))
         return results
 
     def pre_run_warnings(self, cfg=None) -> list[CheckResult]:

@@ -231,6 +231,26 @@ def test_opencode_ships_servers_through_its_config(cfg, tmp_path):
     assert json.loads(env["OPENCODE_CONFIG_CONTENT"])["mcp"] == options["mcp_config"]
 
 
+def test_opencode_isolates_the_developers_own_global_config(cfg, tmp_path):
+    """OpenCode merges ~/.config/opencode/opencode.json into
+    OPENCODE_CONFIG_CONTENT rather than being replaced by it, so a
+    developer's own MCP servers would otherwise leak into every run."""
+    options = OpenCodeProvider().stage_mcp_config(tmp_path, cfg)
+
+    xdg_config_home = Path(options["xdg_config_home"])
+    assert xdg_config_home.is_dir()
+    assert xdg_config_home.parent == tmp_path
+
+    env = _capture_cmd(OpenCodeProvider(), options, cwd=tmp_path)["env"]
+    assert env["XDG_CONFIG_HOME"] == str(xdg_config_home)
+
+
+def test_opencode_sets_no_xdg_config_home_without_servers(tmp_path):
+    env = _capture_cmd(OpenCodeProvider(), {}, cwd=tmp_path)["env"]
+
+    assert "XDG_CONFIG_HOME" not in env
+
+
 def test_codex_keeps_credentials_out_of_argv(cfg, tmp_path, monkeypatch):
     """`ps` is world-readable, so the servers reach codex through a config
     file under a staged CODEX_HOME rather than through `-c` overrides."""

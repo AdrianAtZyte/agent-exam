@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_exam.pool import _settled_on_timeout
+from agent_exam.pool import _settled_on_timeout, _target_tool_already_called
 from agent_exam.schemas import (
     Metrics,
     RunResult,
@@ -124,3 +124,24 @@ def test_a_negative_tool_trigger_keeps_the_timeout():
 
 def test_no_partial_trajectory_keeps_the_timeout():
     assert not _settled_on_timeout(_task(True), None)
+
+
+def test_target_tool_already_called_survives_a_sibling_server_failing():
+    """A sibling MCP server reporting broken after the target was already
+    called shouldn't erase a decisive pass."""
+    task = _task(True, target_tool="mcp__files__search")
+
+    assert _target_tool_already_called(task, _run(1, tools=("mcp__files__search",)))
+
+
+def test_target_tool_not_called_is_not_already_called():
+    task = _task(True, target_tool="mcp__files__search")
+
+    assert not _target_tool_already_called(
+        task, _run(1, tools=("mcp__github__search",))
+    )
+    assert not _target_tool_already_called(task, _run(0))
+
+
+def test_no_target_tool_is_never_already_called():
+    assert not _target_tool_already_called(_task(True), _run(1, tools=("Bash",)))

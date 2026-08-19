@@ -165,6 +165,61 @@ def test_codex_drops_the_path_alias_warning_from_the_stderr_tail():
     assert strip_path_alias_warning(text) == "codex: something broke"
 
 
+def test_opencode_stderr_tail_captures_bytes_before_a_trailing_newline_arrives():
+    """A hung child that writes a diagnostic with no newline yet must not
+    leave the tail waiting on one that may never come."""
+    import os
+    import threading
+    import time
+
+    from agent_exam.providers.dummy import DummyProvider
+    from agent_exam.providers.opencode.stream_parser import StreamState, drain_stderr
+
+    read_fd, write_fd = os.pipe()
+    state = StreamState(provider=DummyProvider())
+    thread = threading.Thread(
+        target=drain_stderr, args=(os.fdopen(read_fd, "rb"), state)
+    )
+    thread.start()
+    try:
+        os.write(write_fd, b"opencode: stalled waiting on a dead mcp server")
+        deadline = time.monotonic() + 2.0
+        while not state.stderr_tail and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert (
+            bytes(state.stderr_tail)
+            == b"opencode: stalled waiting on a dead mcp server"
+        )
+    finally:
+        os.close(write_fd)
+        thread.join(timeout=2.0)
+
+
+def test_opencode_stderr_tail_withholds_a_partial_routine_prefix():
+    """A partial line that could still turn out to be `INFO `/`DEBUG ` is not
+    flushed until enough of it has arrived to rule that out."""
+    import os
+    import threading
+    import time
+
+    from agent_exam.providers.dummy import DummyProvider
+    from agent_exam.providers.opencode.stream_parser import StreamState, drain_stderr
+
+    read_fd, write_fd = os.pipe()
+    state = StreamState(provider=DummyProvider())
+    thread = threading.Thread(
+        target=drain_stderr, args=(os.fdopen(read_fd, "rb"), state)
+    )
+    thread.start()
+    try:
+        os.write(write_fd, b"INFO")
+        time.sleep(0.1)
+        assert not state.stderr_tail
+    finally:
+        os.close(write_fd)
+        thread.join(timeout=2.0)
+
+
 def test_codex_stderr_tail_captures_bytes_before_a_trailing_newline_arrives():
     """A hung child that writes a diagnostic with no newline yet must not
     leave the tail waiting on one that may never come."""

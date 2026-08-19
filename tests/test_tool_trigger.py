@@ -378,6 +378,20 @@ def test_opencode_does_not_settle_on_a_running_target_tool():
     assert not state.kill_signal.is_set()
 
 
+def test_opencode_negative_case_does_not_settle_on_turn_finish():
+    from agent_exam.providers.opencode.stream_parser import StreamState as OpenCodeState
+    from agent_exam.providers.opencode.stream_parser import _dispatch as opencode
+
+    state = OpenCodeState(provider=DummyProvider())
+    state.skill_detection_enabled = True
+    state.target_tool = _TARGET
+    state.negative_trigger_mode = True
+
+    opencode(json.dumps({"type": "step_finish", "part": {"reason": "stop"}}), state)
+
+    assert not state.kill_signal.is_set()
+
+
 def test_codex_negative_case_does_not_settle_on_a_command():
     from agent_exam.providers.codex_cli.stream_parser import StreamState as CodexState
     from agent_exam.providers.codex_cli.stream_parser import _dispatch as codex
