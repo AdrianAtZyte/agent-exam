@@ -89,6 +89,7 @@ def build_run_result(
         metrics=metrics,
         raw_transcript_path=raw_transcript_path,
         model=actual_model,
+        mcp_server_status=state.mcp_server_status,
     )
 
 

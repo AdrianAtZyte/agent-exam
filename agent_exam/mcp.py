@@ -227,6 +227,23 @@ def preflight(
     return results
 
 
+def server_status_map(servers: object) -> dict[str, str] | None:
+    """Read a harness's session-start server list as name -> status.
+
+    Claude Code and Copilot CLI both announce the servers they attached as a
+    list of ``{"name": ..., "status": ...}`` objects. Anything else reads as
+    ``None``, the "the harness said nothing" :py:func:`connection_check`
+    passes on.
+    """
+    if not isinstance(servers, list):
+        return None
+    return {
+        str(s.get("name")): str(s.get("status"))
+        for s in servers
+        if isinstance(s, dict) and s.get("name")
+    }
+
+
 def connection_check(
     statuses: dict[str, str] | None, expected: Iterable[str] = ()
 ) -> CheckResult:

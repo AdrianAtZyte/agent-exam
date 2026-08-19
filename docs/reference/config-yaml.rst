@@ -342,7 +342,10 @@ is about.
 
 A server that fails to connect leaves the agent silently without its tools, so
 an attempt whose harness reports one is an ``error`` rather than a graded
-result. The statuses land in the attempt's :file:`attempt.json`.
+result. The statuses land in the attempt's :file:`attempt.json`. ``claude_code``,
+``copilot_cli`` and ``opencode`` each report them; ``codex_cli`` reports
+nothing, and under it a server that never came up surfaces as the task
+failing.
 
 Assertions grade MCP tool calls through the ordinary ``tool_called``,
 ``tool_not_called`` and ``tool_count`` types, naming the tool as

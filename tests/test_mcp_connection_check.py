@@ -1,6 +1,6 @@
-"""Connection status of the attached MCP servers, read off the harness's
-session-start event. A server that dies on startup leaves the agent without
-its tools and says nothing else about it.
+"""Connection status of the attached MCP servers, read off whatever each
+harness says at session start. A server that dies on startup leaves the agent
+without its tools and says nothing else about it.
 """
 
 from __future__ import annotations
@@ -43,6 +43,116 @@ def test_stream_records_nothing_without_servers():
     state = _drain([{"type": "system", "subtype": "init", "mcp_servers": []}])
 
     assert state.mcp_server_status == {}
+
+
+_COPILOT_INIT = {
+    "type": "session.mcp_servers_loaded",
+    "data": {
+        "servers": [
+            {
+                "name": "remote",
+                "status": "failed",
+                "error": "failed to spawn MCP server process: No such file or directory",
+                "transport": "stdio",
+            },
+            {"name": "files", "status": "connected", "transport": "stdio"},
+        ]
+    },
+    "ephemeral": True,
+}
+
+
+def test_copilot_stream_records_server_statuses():
+    from agent_exam.providers.copilot_cli.provider import CopilotCliProvider
+    from agent_exam.providers.copilot_cli.stream_parser import (
+        StreamState as CopilotState,
+    )
+    from agent_exam.providers.copilot_cli.stream_parser import _dispatch
+    from agent_exam.providers.copilot_cli.transcripts import build_run_result
+
+    state = CopilotState(provider=CopilotCliProvider())
+    _dispatch(json.dumps(_COPILOT_INIT), state)
+
+    assert state.mcp_server_status == {"files": "connected", "remote": "failed"}
+    result = build_run_result(state, wall_time_seconds=0.0)
+    assert result.mcp_server_status == {"files": "connected", "remote": "failed"}
+
+
+# Recorded from `opencode run --print-logs --log-level INFO` over four
+# servers: one of each transport that came up, and one of each that did not.
+_OPENCODE_LOGS = """\
+INFO  2026-08-19T08:57:53 +5ms service=mcp key=files type=local found
+INFO  2026-08-19T08:57:53 +5ms service=mcp key=dead type=local found
+INFO  2026-08-19T09:05:57 +6ms service=mcp key=remote type=remote found
+INFO  2026-08-19T09:05:57 +18ms service=mcp key=unreachable type=remote found
+ERROR 2026-08-19T08:57:53 +5ms service=mcp key=dead command=["nope"] \
+error=Executable not found in $PATH: "nope" local mcp startup failed
+INFO  2026-08-19T08:57:55 +1652ms service=mcp key=files mcp stderr: Starting \
+default (STDIO) server...
+INFO  2026-08-19T09:05:58 +387ms service=mcp key=remote \
+transport=StreamableHTTP connected
+INFO  2026-08-19T08:57:55 +74ms service=mcp key=files toolCount=13 create() \
+successfully created client
+INFO  2026-08-19T09:05:58 +129ms service=mcp key=remote toolCount=13 create() \
+successfully created client
+INFO  2026-08-19T08:59:41 +316ms service=file init
+"""
+
+
+def _opencode_drain(logs: str):
+    from agent_exam.providers.dummy import DummyProvider
+    from agent_exam.providers.opencode.stream_parser import StreamState, drain_stderr
+
+    state = StreamState(provider=DummyProvider())
+    drain_stderr(io.BytesIO(logs.encode()), state)
+    return state
+
+
+def test_opencode_logs_record_server_statuses():
+    """A local server that fails says so; a remote one that fails is never
+    mentioned again, so `found` has to start every server off as failed."""
+    state = _opencode_drain(_OPENCODE_LOGS)
+
+    assert state.mcp_server_status == {
+        "files": "connected",
+        "remote": "connected",
+        "dead": "failed",
+        "unreachable": "failed",
+    }
+
+
+def test_opencode_keeps_routine_logging_out_of_the_stderr_tail():
+    state = _opencode_drain(_OPENCODE_LOGS + "opencode: something broke\n")
+    tail = bytes(state.stderr_tail).decode()
+
+    assert "something broke" in tail
+    assert "local mcp startup failed" in tail
+    assert "service=file init" not in tail
+
+
+def test_opencode_records_nothing_without_mcp_logs():
+    """`--print-logs` is only passed when servers are attached, so a run
+    without them says nothing either way."""
+    assert _opencode_drain("INFO  service=file init\n").mcp_server_status is None
+
+
+def test_codex_drops_the_path_alias_warning_from_the_stderr_tail():
+    """A staged CODEX_HOME is always a temp dir, so codex warns on every run
+    and would otherwise be the whole tail of an unrelated failure."""
+    from agent_exam.providers.codex_cli.stream_parser import StreamState, drain_stderr
+
+    state = StreamState()
+    drain_stderr(
+        io.BytesIO(
+            b"WARNING: proceeding, even though we could not create PATH "
+            b"aliases: Refusing to create helper binaries under temporary "
+            b'dir "/tmp" (codex_home: AbsolutePathBuf("/tmp/x"))\n'
+            b"codex: something broke\n"
+        ),
+        state,
+    )
+
+    assert bytes(state.stderr_tail).decode() == "codex: something broke\n"
 
 
 def test_check_fails_on_a_server_that_did_not_connect():

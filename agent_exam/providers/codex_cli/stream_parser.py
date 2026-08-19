@@ -76,12 +76,17 @@ def drain_stream(
             _dispatch(line, state)
 
 
+# codex declines to install its helper binaries when CODEX_HOME sits in a
+# temp dir, which a staged one always does, and says so on every run before
+# carrying on regardless. Keeping it out of the tail leaves that for
+# whatever went wrong.
+_PATH_ALIAS_WARNING = "could not create PATH aliases"
+
+
 def drain_stderr(stderr: IO[bytes], state: StreamState) -> None:
-    while True:
-        chunk = stderr.read1(4096)
-        if not chunk:
-            break
-        state.stderr_tail.extend(chunk)
+    for line in io.TextIOWrapper(stderr, encoding="utf-8", errors="replace"):
+        if _PATH_ALIAS_WARNING not in line:
+            state.stderr_tail.extend(line.encode())
 
 
 def _dispatch(line: str, state: StreamState) -> None:

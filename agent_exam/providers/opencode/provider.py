@@ -128,6 +128,10 @@ class OpenCodeProvider(Provider):
         if agent:
             cmd.extend(["--agent", agent])
         cmd.extend(["--dir", str(cwd.resolve())])
+        if provider_options.get("mcp_config"):
+            # Whether each server connected is logged and nothing else
+            # reports it — not the JSON stream, not the exit code.
+            cmd.extend(["--print-logs", "--log-level", "INFO"])
         cmd.append(prompt)
 
         env = build_child_env()

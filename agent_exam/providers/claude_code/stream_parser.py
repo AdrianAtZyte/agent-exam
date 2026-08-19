@@ -7,7 +7,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import IO
 
-from ...mcp import settles_tool_trigger
+from ...mcp import server_status_map, settles_tool_trigger
 from ...schemas import SkillInvocation
 from .skill_detect import detect_from_partial
 
@@ -91,13 +91,9 @@ def _dispatch(line: str, state: StreamState) -> None:
     if sid and state.session_id is None:
         state.session_id = sid
     if event.get("type") == "system" and event.get("subtype") == "init":
-        servers = event.get("mcp_servers")
-        if isinstance(servers, list):
-            state.mcp_server_status = {
-                str(s.get("name")): str(s.get("status"))
-                for s in servers
-                if isinstance(s, dict) and s.get("name")
-            }
+        statuses = server_status_map(event.get("mcp_servers"))
+        if statuses is not None:
+            state.mcp_server_status = statuses
     elif event.get("type") == "result":
         state.total_cost_usd = event.get("total_cost_usd")
         state.result_is_error = bool(event.get("is_error"))

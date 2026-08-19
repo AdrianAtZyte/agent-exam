@@ -7,7 +7,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import IO
 
-from ...mcp import settles_tool_trigger
+from ...mcp import server_status_map, settles_tool_trigger
 from ...schemas import SkillInvocation
 from ..base import Provider
 from .transcripts import _request_tool_name
@@ -25,6 +25,12 @@ class StreamState:
 
     # All non-ephemeral events, in arrival order, for trajectory building.
     events: list = field(default_factory=list)
+
+    # MCP server name -> connection status, from the
+    # `session.mcp_servers_loaded` event. A server that fails to start
+    # leaves the agent without its tools and nothing else says so; the
+    # attempt is failed over it (see `mcp.connection_check`).
+    mcp_server_status: dict[str, str] | None = None
 
     # Skill-detection fields (populated when skill_detection_enabled=True).
     # `kill_signal` fires on a match so the provider's main thread can
@@ -93,7 +99,12 @@ def _dispatch(line: str, state: StreamState) -> None:
     if not is_ephemeral:
         state.events.append(event)
 
-    if event_type == "session.tools_updated":
+    if event_type == "session.mcp_servers_loaded":
+        statuses = server_status_map((event.get("data") or {}).get("servers"))
+        if statuses is not None:
+            state.mcp_server_status = statuses
+
+    elif event_type == "session.tools_updated":
         model = (event.get("data") or {}).get("model")
         if model and state.model is None:
             state.model = model

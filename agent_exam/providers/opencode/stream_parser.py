@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import threading
 from collections import deque
 from dataclasses import dataclass, field
@@ -18,6 +19,12 @@ class StreamState:
 
     session_id: str | None = None
     stderr_tail: deque = field(default_factory=lambda: deque(maxlen=8192))
+
+    # MCP server name -> connection status, read off the `--print-logs`
+    # output on stderr. A server that fails to start leaves the agent
+    # without its tools and nothing else says so; the attempt is failed
+    # over it (see `mcp.connection_check`).
+    mcp_server_status: dict[str, str] | None = None
 
     # Skill-detection fields (driven by drain_stream when
     # skill_detection_enabled=True). `kill_signal` fires on a match so the
@@ -65,12 +72,41 @@ def drain_stream(
             _dispatch(line, state)
 
 
+_MCP_LOG = re.compile(r"\bservice=mcp\b.*?\bkey=(\S+)")
+_MCP_CONNECTED = "create() successfully created client"
+_ROUTINE_LOG_LEVELS = ("INFO ", "DEBUG ")
+
+
 def drain_stderr(stderr: IO[bytes], state: StreamState) -> None:
-    while True:
-        chunk = stderr.read(4096)
-        if not chunk:
-            break
-        state.stderr_tail.extend(chunk)
+    for line in io.TextIOWrapper(stderr, encoding="utf-8", errors="replace"):
+        _dispatch_log(line, state)
+        # Routine logging is on so that the MCP statuses come through;
+        # keeping it out of the tail leaves that for whatever went wrong.
+        if not line.startswith(_ROUTINE_LOG_LEVELS):
+            state.stderr_tail.extend(line.encode())
+
+
+def _dispatch_log(line: str, state: StreamState) -> None:
+    """Track the MCP connection statuses opencode logs to stderr.
+
+    A server is announced as ``found`` when its config is read, and again
+    once its client exists. Whatever can go wrong in between — a command
+    that is not on `PATH`, a URL that does not answer — leaves it at the
+    first line with no further mention, so ``found`` starts a server off as
+    failed and only the client line clears it.
+    """
+    match = _MCP_LOG.search(line)
+    if match is None:
+        return
+    if _MCP_CONNECTED in line:
+        status = "connected"
+    elif line.rstrip().endswith(" found"):
+        status = "failed"
+    else:
+        return
+    if state.mcp_server_status is None:
+        state.mcp_server_status = {}
+    state.mcp_server_status[match.group(1)] = status
 
 
 def _dispatch(line: str, state: StreamState) -> None:
