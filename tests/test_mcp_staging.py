@@ -218,16 +218,37 @@ def test_opencode_ships_servers_through_its_config(cfg, tmp_path):
     assert json.loads(env["OPENCODE_CONFIG_CONTENT"])["mcp"] == options["mcp_config"]
 
 
-def test_codex_passes_servers_as_config_overrides(cfg, tmp_path):
+def test_codex_keeps_credentials_out_of_argv(cfg, tmp_path, monkeypatch):
+    """`ps` is world-readable, so the servers reach codex through a config
+    file under a staged CODEX_HOME rather than through `-c` overrides."""
+    user_home = tmp_path / "user-codex-home"
+    user_home.mkdir()
+    (user_home / "auth.json").write_text("{}")
+    monkeypatch.setenv("CODEX_HOME", str(user_home))
+
     options = CodexCliProvider().stage_mcp_config(tmp_path, cfg, ["files"])
+    captured = _capture_cmd(CodexCliProvider(), options, cwd=tmp_path)
+    home = Path(captured["env"]["CODEX_HOME"])
 
-    cmd = CodexCliProvider()._build_cmd(
-        prompt="x", model="", cwd=tmp_path, provider_options=options
+    assert home.parent == tmp_path
+    assert (home / "config.toml").read_text() == (
+        "[mcp_servers]\n"
+        '"files" = {"command" = "sh", "args" = ["--root", "."], '
+        '"env" = {"TOKEN" = "s3cret"}}\n'
     )
+    assert not any("s3cret" in arg for arg in captured["cmd"])
+    # Codex resolves credentials from CODEX_HOME as well.
+    assert (home / "auth.json").read_text() == "{}"
+    # The staged home holds only what this run wrote, so there is no user
+    # config left to ignore.
+    assert "--ignore-user-config" not in captured["cmd"]
 
-    assert 'mcp_servers.files.command="sh"' in cmd
-    assert 'mcp_servers.files.args=["--root", "."]' in cmd
-    assert 'mcp_servers.files.env.TOKEN="s3cret"' in cmd
+
+def test_codex_without_servers_keeps_ignoring_the_user_config(cfg, tmp_path):
+    assert CodexCliProvider().stage_mcp_config(tmp_path, cfg, []) == {}
+
+    cmd = _capture_cmd(CodexCliProvider(), {}, cwd=tmp_path)["cmd"]
+    assert "--ignore-user-config" in cmd
 
 
 def test_codex_refuses_an_http_server_with_headers(cfg, tmp_path):

@@ -82,6 +82,21 @@ def test_config_rejects_unknown_server_key(tmp_path):
         load_config(root)
 
 
+def test_config_rejects_a_server_name_with_a_dot(tmp_path):
+    """The name is half of an `mcp__<server>__<tool>` tool name and a TOML key
+    path in the config codex_cli renders, where a dot would nest instead."""
+    root = _project(
+        tmp_path,
+        """\
+        mcp_servers:
+          foo.bar:
+            command: mcp-files
+        """,
+    )
+    with pytest.raises(UsageError):
+        load_config(root)
+
+
 def test_resolve_expands_env_refs(tmp_path, monkeypatch):
     monkeypatch.setenv("MCP_TOKEN", "s3cret")
     cfg = load_config(_project(tmp_path, _CONFIG))

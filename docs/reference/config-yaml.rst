@@ -341,7 +341,8 @@ result. The statuses land in the attempt's :file:`attempt.json`.
 
 Assertions grade MCP tool calls through the ordinary ``tool_called``,
 ``tool_not_called`` and ``tool_count`` types, naming the tool as
-``mcp__<server>__<tool>`` whichever harness ran.
+``mcp__<server>__<tool>`` whichever harness ran, so a server name is limited
+to letters, digits, ``-`` and ``_``.
 
 A full example
 ==============

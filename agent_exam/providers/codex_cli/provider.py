@@ -134,7 +134,11 @@ class CodexCliProvider(Provider):
     ) -> RunResult:
         provider_options = self._prepare_prefix_rules(cwd, provider_options)
         cmd = self._build_cmd(prompt, model, cwd, provider_options)
-        env = build_child_env(provider_options.get("env_overrides"))
+        env_overrides = provider_options.get("env_overrides")
+        staged_home = provider_options.get("codex_home")
+        if staged_home:
+            env_overrides = {"CODEX_HOME": staged_home, **(env_overrides or {})}
+        env = build_child_env(env_overrides)
 
         cwd_abs = cwd.resolve()
         raw_dir = cwd_abs.parent / ".raw_streams" / cwd_abs.name
@@ -302,10 +306,6 @@ class CodexCliProvider(Provider):
                 )
         if restricted_tools:
             config_overrides.setdefault("web_search", "disabled")
-        if provider_options.get("mcp_servers"):
-            config_overrides = _deep_merge(
-                {"mcp_servers": provider_options["mcp_servers"]}, config_overrides
-            )
         if provider_options.get("trust_project_config"):
             config_overrides = _deep_merge(
                 config_overrides,
@@ -316,7 +316,11 @@ class CodexCliProvider(Provider):
 
         cmd.append("exec")
         cmd.extend(["--json", "--color", "never", "--skip-git-repo-check"])
-        if provider_options.get("ignore_user_config", True):
+        # A staged CODEX_HOME (see `stage_mcp_config`) holds only the
+        # config.toml this run wrote, which codex has to load to find its
+        # MCP servers.
+        staged_home = provider_options.get("codex_home")
+        if provider_options.get("ignore_user_config", True) and not staged_home:
             cmd.append("--ignore-user-config")
         if provider_options.get("ignore_rules", True):
             cmd.append("--ignore-rules")
@@ -329,9 +333,13 @@ class CodexCliProvider(Provider):
         return cmd
 
     def stage_mcp_config(self, run_tmp_root: Path, cfg, servers=None) -> dict:
-        """Translate the servers into the `mcp_servers` table Codex takes as
-        `-c` overrides. Codex has no place for per-request HTTP headers, so a
-        server that needs them cannot run here.
+        """Render the servers into the `mcp_servers` table of a
+        :file:`config.toml` under a staged ``CODEX_HOME``, and point the
+        attempt at it. Codex takes configuration either from that file or from
+        `-c` overrides on its command line, and a server's ``env`` holds
+        credentials, which argv would expose to any local process through
+        ``ps``. Codex has no place for per-request HTTP headers, so a server
+        that needs them cannot run here.
         """
         table: dict[str, dict] = {}
         for name, server in resolve_servers(cfg, servers).items():
@@ -349,7 +357,7 @@ class CodexCliProvider(Provider):
             table[name] = {"url": server["url"]}
         if not table:
             return {}
-        return {"mcp_servers": table}
+        return {"codex_home": str(_stage_codex_home(run_tmp_root, table))}
 
     def _prepare_prefix_rules(self, cwd: Path, provider_options: dict) -> dict:
         prefix_rules = provider_options.get("prefix_rules")
@@ -497,6 +505,30 @@ class CodexCliProvider(Provider):
         if cfg is None:
             return
         stage_skills_into(run_tmp_root, cfg.skills_dirs, exclude=skills_to_exclude)
+
+
+def _stage_codex_home(run_tmp_root: Path, mcp_servers: dict[str, dict]) -> Path:
+    """Build a ``CODEX_HOME`` holding this run's MCP servers, plus a copy of
+    the developer's :file:`auth.json` — codex resolves credentials from
+    ``CODEX_HOME`` too, and a copy leaves their own file untouched by a token
+    refresh mid-attempt.
+
+    A home of its own is also what leaves nothing of the developer's codex
+    config in reach of the trial, the job ``--ignore-user-config`` does for
+    every other run.
+    """
+    home = run_tmp_root / f"codex-home-{uuid.uuid4().hex[:12]}"
+    home.mkdir(parents=True, exist_ok=True)
+    lines = ["[mcp_servers]"]
+    lines += [
+        f"{_toml_key(name)} = {_toml_value(server)}"
+        for name, server in mcp_servers.items()
+    ]
+    (home / "config.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    auth = codex_home() / "auth.json"
+    if auth.is_file():
+        shutil.copy2(auth, home / "auth.json")
+    return home
 
 
 def _render_prefix_rules(rules: list[dict]) -> str:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -11,7 +11,7 @@ else:
     import tomli as tomllib
 
 import yaml
-from pydantic import Field, PrivateAttr, ValidationError
+from pydantic import Field, PrivateAttr, StringConstraints, ValidationError
 
 from ._models import _StrictModel, render_validation_error
 from .errors import UsageError
@@ -138,6 +138,11 @@ class McpHttpServer(_StrictModel):
 #: branches are told apart by `command` vs `url`.
 McpServerConfig = McpStdioServer | McpHttpServer
 
+#: A server name under `mcp_servers:`. Narrow because the name is both half
+#: of the `mcp__<server>__<tool>` tool names assertions match on and a bare
+#: TOML key path in the config codex_cli renders, where a dot would nest.
+McpServerName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]+$")]
+
 
 class Config(_StrictModel):
     """The eval framework's runtime config — `evals/config.yaml`
@@ -159,7 +164,7 @@ class Config(_StrictModel):
     # MCP servers available to the agent under evaluation. Tasks attach a
     # subset with their own `mcp_servers:`; definitions live here so
     # credentials stay out of task files, which reports serialize verbatim.
-    mcp_servers: dict[str, McpServerConfig] = Field(default_factory=dict)
+    mcp_servers: dict[McpServerName, McpServerConfig] = Field(default_factory=dict)
     # Dotted module:callable path for the pre-run hook, e.g.
     # ``"evals.hooks:pre_run_hook"``. Loaded from ``pyproject.toml
     # [tool.agent-exam] pre_run_hook``.
