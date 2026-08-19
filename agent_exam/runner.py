@@ -380,6 +380,17 @@ def run(cfg: Config, req: RunRequest) -> int:
         # staging, the preflight checks and the reports all follow without
         # a second code path. Task selections are already validated above.
         cfg = cfg.model_copy(update={"mcp_servers": {}})
+        # A tool trigger grades on MCP calls, which cannot happen with no
+        # server attached: the positives fail and the negatives pass on an
+        # empty trajectory. Skill triggers stay — routing does not need the
+        # tools it routes to.
+        tasks = [t for t in tasks if not t.target_tool]
+        if not tasks:
+            specs_str = ", ".join(f"{s}::{t}" if t else s for s, t in req.specs)
+            raise UsageError(
+                f"every task in {specs_str} targets an MCP tool, so there is "
+                f"nothing left to run under --no-mcp"
+            )
 
     paths = RunPaths(cfg.evals_dir, new_run_id(cfg.evals_dir / "runs"))
     paths.run_dir.mkdir(parents=True)

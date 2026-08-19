@@ -89,3 +89,30 @@ def test_detaching_nothing_is_refused(tmp_path):
 
     with pytest.raises(UsageError, match="no mcp_servers are declared"):
         run(load_config(root), _req(no_mcp=True))
+
+
+def _trigger(root: Path, name: str, target: str) -> None:
+    (root / "evals" / "suites" / "s" / "tasks" / f"{name}.yaml").write_text(
+        f"kind: trigger\n{target}\npositive: [ping]\nnegative: [pong]\n"
+    )
+
+
+def test_tool_triggers_are_dropped_and_skill_triggers_stay(tmp_path):
+    root = _project(tmp_path)
+    _trigger(root, "tool", "tool: mcp__files__search")
+    _trigger(root, "skill", "skill: s")
+
+    assert run(load_config(root), _req(no_mcp=True)) == 0
+
+    run_dir = next(iter((root / "evals" / "runs").iterdir()))
+    suite_dir = run_dir / "artifacts" / "s"
+    assert sorted(p.name for p in suite_dir.iterdir()) == ["skill-0", "skill-1", "t"]
+
+
+def test_a_tool_trigger_only_suite_is_refused(tmp_path):
+    root = _project(tmp_path)
+    (root / "evals" / "suites" / "s" / "tasks" / "t.yaml").unlink()
+    _trigger(root, "tool", "tool: mcp__files__search")
+
+    with pytest.raises(UsageError, match="targets an MCP tool"):
+        run(load_config(root), _req(no_mcp=True))

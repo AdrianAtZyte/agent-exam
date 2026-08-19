@@ -11,7 +11,8 @@
 The latter three are *reality checks*: verdicts are informational so the
 run exits 0 regardless, and the inspection commands keep them out of
 lift-style comparisons against normal runs. The skill-withholding two
-also skip trigger tasks, there being no skill left to fire.
+also skip trigger tasks, there being no skill left to fire, and `no-mcp`
+skips the trigger tasks with a `tool` target for the same reason.
 """
 
 from __future__ import annotations
