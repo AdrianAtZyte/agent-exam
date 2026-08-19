@@ -7,7 +7,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import IO
 
-from ...mcp import canonical_tool_name
+from ...mcp import canonical_tool_name, settles_tool_trigger
 from ...schemas import SkillInvocation
 from ..base import Provider
 
@@ -108,9 +108,10 @@ def _dispatch_skill_detection(part: dict, state: StreamState) -> None:
         # OpenCode publishes a tool part on stdout once the call is over, so
         # the kill lands on the finished call and saves the rest of the turn
         # rather than the call itself.
-        if (
-            isinstance(tool, str)
-            and canonical_tool_name(tool, state.mcp_servers) == state.target_tool
+        if isinstance(tool, str) and settles_tool_trigger(
+            canonical_tool_name(tool, state.mcp_servers),
+            state.target_tool,
+            state.negative_trigger_mode,
         ):
             state.detected_tool = tool
             state.kill_signal.set()

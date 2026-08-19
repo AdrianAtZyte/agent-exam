@@ -58,10 +58,10 @@ class AttemptOutcome:
 def _settled_on_timeout(task: Task, run_result: RunResult | None) -> bool:
     """Whether a timed-out trigger already has its answer.
 
-    A positive trigger ends either on the first skill fire or on the wall
-    clock, so "no skill fired" can only surface as a timeout. A negative tool
-    trigger ends either on the target call or on the wall clock, so "the tool
-    was never called" surfaces the same way. Once the agent has run a real tool
+    A positive skill trigger ends either on the first skill fire or on the wall
+    clock, so "no skill fired" can only surface as a timeout. A tool trigger of
+    either sign ends on an MCP call or on the wall clock, so "the tool was
+    never called" surfaces the same way. Once the agent has run a real tool
     without reaching for the target it has routed elsewhere, and the partial
     trajectory is enough to score — grading it beats discarding the evidence as
     a framework error. The tool-call floor keeps a genuine cold-start timeout,
@@ -69,12 +69,10 @@ def _settled_on_timeout(task: Task, run_result: RunResult | None) -> bool:
     """
     if run_result is None or run_result.metrics.n_tool_calls == 0:
         return False
-    if task.should_trigger:
-        return not any(turn.skill_invocations for turn in run_result.trajectory)
-    return (
-        task.should_trigger is False
-        and task.target_tool is not None
-        and count_tool_calls(run_result.trajectory, task.target_tool) == 0
+    if task.target_tool:
+        return count_tool_calls(run_result.trajectory, task.target_tool) == 0
+    return bool(task.should_trigger) and not any(
+        turn.skill_invocations for turn in run_result.trajectory
     )
 
 
@@ -190,7 +188,6 @@ def _execute_attempt(
         # attempt on the first skill fire instead, throwing away the very
         # call the assertion grades on; it runs the turn out instead.
         stop_early = provider.supports_tool_triggers
-    negative_tool_trigger = task.should_trigger is False and bool(task.target_tool)
     if task.should_trigger is False:
         # Negative trigger case: signal the provider to cut early once
         # the routing decision is evident. For a skill target that is the
@@ -235,19 +232,20 @@ def _execute_attempt(
         provider.stage_mcp_config(run_tmp_root, cfg, task.mcp_servers)
     )
 
-    # Trigger tasks default to 60s: positives get killed on first skill
-    # fire; negatives get killed on first non-Skill tool use or first
-    # message_stop (see negative_trigger_mode). Wall-clock is a
+    # Skill-target trigger tasks default to 60s: positives get killed on
+    # first skill fire; negatives get killed on first non-Skill tool use or
+    # first message_stop (see negative_trigger_mode). Wall-clock is a
     # fallback for cold-start latency — stream signals handle the
     # fast path. 60s accommodates slower providers (e.g. opencode
     # with z-ai/glm-5.1 takes ~8s to first byte).
     #
-    # A negative tool case settles when the turn ends rather than on a
-    # stream signal, so the wall clock is what it actually runs against
-    # and it gets the full task budget.
+    # Tool cases get the full task budget instead. The agent looks around
+    # before it reaches for a tool, and an npx-booted stdio server can spend
+    # a fair share of a 60-second budget just starting, so the routing
+    # decision lands far later than a skill fire does.
     if task.timeout_seconds is not None:
         timeout = task.timeout_seconds
-    elif task.kind == "trigger" and not negative_tool_trigger:
+    elif task.kind == "trigger" and not task.target_tool:
         timeout = min(60, cfg.default_task_timeout_seconds)
     else:
         timeout = cfg.default_task_timeout_seconds

@@ -92,7 +92,7 @@ a file-level ``setup.fixture:`` applies to every case.
 
 ``assertions`` is not used on trigger tasks — the framework generates the
 appropriate assertion per case, ``first_skill`` for positives and
-``skill_not_invoked`` for negatives, or ``tool_called`` and ``tool_not_called``
+``skill_not_invoked`` for negatives, or ``first_tool`` and ``tool_not_called``
 for a ``tool`` target.
 
 .. _assertion-meta-fields:
@@ -287,6 +287,25 @@ name. This is what trigger evals generate for their positive cases.
 
 ``skill``
     Expected skill name.
+
+``first_tool``
+--------------
+
+Asserts that the given tool is the first MCP tool the agent reached for. Native
+tools are ignored — an agent greps and reads before deciding which tool the
+request calls for — so this fails only when it called some other MCP tool
+first, or none at all. This is what trigger evals with a ``tool`` target
+generate for their positive cases.
+
+.. code-block:: yaml
+
+    - first_tool: mcp__files__search
+    # or:
+    - first_tool:
+        name: mcp__files__search
+
+``name``
+    Expected tool name.
 
 ``skill_not_invoked``
 ---------------------

@@ -10,6 +10,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import IO
 
+from ...mcp import settles_tool_trigger
 from ...schemas import SkillInvocation
 
 _SKILL_PATH_RE = re.compile(
@@ -172,8 +173,11 @@ def _unwrap_error_json(message: str) -> str:
 
 def _dispatch_skill_detection(item: dict, state: StreamState) -> None:
     if state.target_tool:
-        if _tool_name_from_item(item) == state.target_tool:
-            state.detected_tool = state.target_tool
+        name = _tool_name_from_item(item)
+        if name and settles_tool_trigger(
+            name, state.target_tool, state.negative_trigger_mode
+        ):
+            state.detected_tool = name
             state.kill_signal.set()
         return
 

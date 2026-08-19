@@ -7,6 +7,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import IO
 
+from ...mcp import settles_tool_trigger
 from ...schemas import SkillInvocation
 from .skill_detect import detect_from_partial
 
@@ -118,7 +119,9 @@ def _dispatch_skill_detection(se: dict, state: StreamState) -> None:
         if cb.get("type") == "tool_use":
             name = cb.get("name", "")
             if state.target_tool:
-                if name == state.target_tool:
+                if settles_tool_trigger(
+                    name, state.target_tool, state.negative_trigger_mode
+                ):
                     state.detected_tool = name
                     state.kill_signal.set()
             elif name in ("Skill", "Read"):

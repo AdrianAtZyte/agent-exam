@@ -8,9 +8,9 @@ from textwrap import dedent
 
 import pytest
 
-from agent_exam.assertions.tool_called import ToolCalledConfig
-from agent_exam.assertions.tool_called import check as tool_called
-from agent_exam.config import load_config
+from agent_exam.assertions.first_tool import FirstToolConfig
+from agent_exam.assertions.first_tool import check as first_tool
+from agent_exam.config import DEFAULT_TASK_TIMEOUT, load_config
 from agent_exam.errors import UsageError
 from agent_exam.mcp import canonicalize_tool_names
 from agent_exam.providers.claude_code.stream_parser import StreamState, _dispatch
@@ -43,7 +43,7 @@ def test_cases_grade_on_the_tool_instead_of_the_skill(tmp_path):
     positive, negative = load_task(path, suite="s")
     assert [t.target_tool for t in (positive, negative)] == [_TARGET, _TARGET]
     assert positive.target_skill is None
-    assert positive.assertions[0].type == "tool_called"
+    assert positive.assertions[0].type == "first_tool"
     assert positive.assertions[0].config == _TARGET
     assert negative.assertions[0].type == "tool_not_called"
 
@@ -93,6 +93,37 @@ def test_the_run_is_cut_on_the_target_tool():
     assert state.kill_signal.is_set()
 
 
+def test_a_positive_case_is_cut_on_another_servers_tool():
+    """Which tool the agent picks is the whole question, so the first MCP call
+    answers it whichever tool it is — the `first_skill` economics, for tools."""
+    state = StreamState(skill_detection_enabled=True, target_tool=_TARGET)
+
+    _stream(state, "Read", "mcp__notes__search")
+
+    assert state.detected_tool == "mcp__notes__search"
+    assert state.kill_signal.is_set()
+
+
+def test_a_wrong_tool_before_the_target_is_a_routing_miss():
+    """The kill can leave both calls in the transcript — Copilot announces
+    every tool of a turn in one message — so the grading is what decides."""
+    trajectory = [Turn(role="assistant", content=[TextBlock(text="on it")])]
+    record_detected_tool(trajectory, "mcp__notes__search")
+    record_detected_tool(trajectory, _TARGET)
+
+    result = RunResult(trajectory=trajectory, metrics=Metrics(0.0, Tokens(), 0.0, 0, 0))
+    assert not first_tool(FirstToolConfig(name=_TARGET), result, Path()).pass_
+
+
+def test_native_calls_before_the_target_are_not_a_miss():
+    trajectory = [Turn(role="assistant", content=[TextBlock(text="on it")])]
+    record_detected_tool(trajectory, "Read")
+    record_detected_tool(trajectory, _TARGET)
+
+    result = RunResult(trajectory=trajectory, metrics=Metrics(0.0, Tokens(), 0.0, 0, 0))
+    assert first_tool(FirstToolConfig(name=_TARGET), result, Path()).pass_
+
+
 def test_a_positive_case_keeps_going_while_the_agent_looks_around():
     state = StreamState(skill_detection_enabled=True, target_tool=_TARGET)
 
@@ -125,17 +156,15 @@ def test_the_call_the_kill_landed_on_is_recorded():
     record_detected_tool(trajectory, _TARGET)
 
     result = RunResult(trajectory=trajectory, metrics=Metrics(0.0, Tokens(), 0.0, 0, 0))
-    assert tool_called(ToolCalledConfig(name=_TARGET), result, Path()).pass_
+    assert first_tool(FirstToolConfig(name=_TARGET), result, Path()).pass_
     # A second pass over a transcript that already has the call adds nothing.
     record_detected_tool(trajectory, _TARGET)
     assert len(trajectory[0].content) == 2
 
 
-def test_a_harness_that_cannot_watch_for_the_tool_runs_the_turn_out(
-    tmp_path, monkeypatch
-):
-    """Cutting on the first skill fire instead would throw away the call the
-    assertion grades on."""
+def _run_a_tool_trigger(tmp_path, monkeypatch) -> list[dict]:
+    """Run one positive tool-trigger case on the dummy provider, returning
+    the options each `invoke` was called with."""
     root = tmp_path / "proj"
     (root / "evals" / "suites" / "s" / "tasks").mkdir(parents=True)
     (root / "pyproject.toml").write_text('[tool.agent-exam]\nevals_dir = "evals"\n')
@@ -148,12 +177,12 @@ def test_a_harness_that_cannot_watch_for_the_tool_runs_the_turn_out(
         f"kind: trigger\ntool: {_TARGET}\npositive: [hi]\n"
     )
 
-    seen: list[bool] = []
+    calls: list[dict] = []
     original = DummyProvider.invoke
 
-    def spy(self, *args, stop_on_first_skill: bool, **kwargs):
-        seen.append(stop_on_first_skill)
-        return original(self, *args, stop_on_first_skill=stop_on_first_skill, **kwargs)
+    def spy(self, *args, **kwargs):
+        calls.append(kwargs)
+        return original(self, *args, **kwargs)
 
     monkeypatch.setattr("agent_exam.providers.dummy.DummyProvider.invoke", spy)
 
@@ -168,8 +197,25 @@ def test_a_harness_that_cannot_watch_for_the_tool_runs_the_turn_out(
             without_skill=False,
         ),
     )
+    return calls
 
-    assert seen == [False]
+
+def test_a_harness_that_cannot_watch_for_the_tool_runs_the_turn_out(
+    tmp_path, monkeypatch
+):
+    """Cutting on the first skill fire instead would throw away the call the
+    assertion grades on."""
+    calls = _run_a_tool_trigger(tmp_path, monkeypatch)
+
+    assert [c["stop_on_first_skill"] for c in calls] == [False]
+
+
+def test_a_tool_case_gets_the_whole_task_budget(tmp_path, monkeypatch):
+    """The 60-second trigger default assumes a skill fires immediately. Here
+    the agent looks around first, and a booting stdio server eats into it."""
+    calls = _run_a_tool_trigger(tmp_path, monkeypatch)
+
+    assert [c["timeout_seconds"] for c in calls] == [DEFAULT_TASK_TIMEOUT]
 
 
 def test_a_tool_of_an_undeclared_server_fails_validation(tmp_path):
@@ -204,7 +250,7 @@ def _graded(result: RunResult) -> bool:
     spells an MCP tool its own way.
     """
     canonicalize_tool_names(result.trajectory, ["files"])
-    return tool_called(ToolCalledConfig(name=_TARGET), result, Path()).pass_
+    return first_tool(FirstToolConfig(name=_TARGET), result, Path()).pass_
 
 
 def test_copilot_negative_case_does_not_settle_on_the_first_message():
@@ -307,3 +353,81 @@ def test_codex_records_the_call_its_session_may_not_have():
     )
 
     assert _graded(result)
+
+
+def test_copilot_cuts_a_positive_case_on_another_servers_tool():
+    from agent_exam.providers.copilot_cli.provider import CopilotCliProvider
+    from agent_exam.providers.copilot_cli.stream_parser import (
+        StreamState as CopilotState,
+    )
+    from agent_exam.providers.copilot_cli.stream_parser import _dispatch as copilot
+
+    state = CopilotState(provider=CopilotCliProvider())
+    state.skill_detection_enabled = True
+    state.target_tool = _TARGET
+    state.mcp_servers = ("files", "notes")
+
+    copilot(
+        json.dumps(
+            {
+                "type": "assistant.message",
+                "data": {
+                    "toolRequests": [
+                        {
+                            "name": "notes-search",
+                            "toolCallId": "c1",
+                            "mcpServerName": "notes",
+                            "mcpToolName": "search",
+                        }
+                    ]
+                },
+            }
+        ),
+        state,
+    )
+
+    assert state.kill_signal.is_set()
+
+
+def test_opencode_cuts_a_positive_case_on_another_servers_tool():
+    from agent_exam.providers.opencode.stream_parser import StreamState as OpenCodeState
+    from agent_exam.providers.opencode.stream_parser import _dispatch as opencode
+
+    state = OpenCodeState(provider=DummyProvider())
+    state.skill_detection_enabled = True
+    state.target_tool = _TARGET
+    state.mcp_servers = ("files", "notes")
+
+    opencode(
+        json.dumps(
+            {
+                "type": "tool_use",
+                "part": {"tool": "notes_search", "state": {"status": "completed"}},
+            }
+        ),
+        state,
+    )
+
+    assert state.detected_tool == "notes_search"
+    assert state.kill_signal.is_set()
+
+
+def test_codex_cuts_a_positive_case_on_another_servers_tool():
+    from agent_exam.providers.codex_cli.stream_parser import StreamState as CodexState
+    from agent_exam.providers.codex_cli.stream_parser import _dispatch as codex
+
+    state = CodexState(skill_detection_enabled=True)
+    state.target_tool = _TARGET
+
+    codex(
+        json.dumps(
+            {
+                "type": "item.completed",
+                "item": {"type": "mcp_tool_call", "server": "notes", "tool": "search"},
+            }
+        ),
+        state,
+    )
+
+    assert state.detected_tool == "mcp__notes__search"
+    assert state.kill_signal.is_set()

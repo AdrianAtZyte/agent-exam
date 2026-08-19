@@ -115,6 +115,23 @@ def canonical_tool_name(name: str, servers: Iterable[str]) -> str:
     return name
 
 
+def is_mcp_tool(name: str) -> bool:
+    """Whether *name* is an MCP tool in its canonical spelling."""
+    return name.startswith(_CANONICAL_PREFIX)
+
+
+def settles_tool_trigger(name: str, target: str, negative: bool) -> bool:
+    """Whether a call to *name* settles a trigger aimed at tool *target*.
+
+    The target itself always does. A positive case is settled by a call to
+    any MCP tool: the case grades on the first one, so reaching for another
+    server's tool answers it just as decisively. A negative case has to run
+    the turn out, since the agent can call one MCP tool and still reach for
+    the target afterwards.
+    """
+    return name == target or (not negative and is_mcp_tool(name))
+
+
 def canonicalize_tool_names(trajectory: list[Turn], servers: Iterable[str]) -> None:
     """Rename every MCP tool call in *trajectory* to its canonical spelling,
     in place, so one ``tool_called:`` line grades on any harness.

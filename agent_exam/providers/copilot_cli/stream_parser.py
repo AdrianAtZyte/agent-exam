@@ -7,7 +7,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import IO
 
-from ...mcp import canonical_tool_name
+from ...mcp import canonical_tool_name, settles_tool_trigger
 from ...schemas import SkillInvocation
 from ..base import Provider
 
@@ -179,7 +179,9 @@ def _check_tool_in_message(event: dict, state: StreamState) -> None:
             canonical = f"mcp__{server}__{tool}"
         else:
             canonical = canonical_tool_name(name, state.mcp_servers)
-        if canonical == state.target_tool:
+        if settles_tool_trigger(
+            canonical, state.target_tool, state.negative_trigger_mode
+        ):
             state.detected_tool = name
             state.kill_signal.set()
             return

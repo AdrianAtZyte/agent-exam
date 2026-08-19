@@ -362,7 +362,7 @@ def _tasks_from_trigger(
 
     if m.tool:
         target = m.tool
-        synth_types = ("tool_called", "tool_not_called")
+        synth_types = ("first_tool", "tool_not_called")
     else:
         target = m.skill
         synth_types = ("first_skill", "skill_not_invoked")

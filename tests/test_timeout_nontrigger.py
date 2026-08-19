@@ -86,15 +86,16 @@ def test_negative_skill_trigger_and_execute_tasks_keep_the_timeout():
     assert not _settled_on_timeout(_task(None), _run(n_tool_calls=7))
 
 
-def test_negative_tool_trigger_that_never_called_the_tool_is_settled():
-    """It has no stream signal to settle on: the target call cuts the
-    attempt, and anything else runs against the wall clock."""
-    task = _task(False, target_tool="mcp__files__search")
+def test_a_tool_trigger_that_never_called_the_tool_is_settled():
+    """Only an MCP call cuts a tool case short, so an agent that grepped its
+    way to the wall clock without one has answered the question."""
+    for should_trigger in (True, False):
+        task = _task(should_trigger, target_tool="mcp__files__search")
 
-    assert _settled_on_timeout(task, _run(n_tool_calls=7))
-    assert not _settled_on_timeout(
-        task, _run(n_tool_calls=7, tools=("mcp__files__search",))
-    )
+        assert _settled_on_timeout(task, _run(n_tool_calls=7))
+        assert not _settled_on_timeout(
+            task, _run(n_tool_calls=7, tools=("mcp__files__search",))
+        )
 
 
 def test_no_partial_trajectory_keeps_the_timeout():
