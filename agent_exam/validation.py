@@ -388,15 +388,17 @@ def validate_suite(
             )
         )
 
-    # A trigger aimed at a tool of a server nobody declares can never fire,
-    # so every one of its positive cases would fail as a routing miss.
+    # A trigger aimed at a tool of a server the task does not attach can never
+    # fire, so every one of its positive cases would fail as a routing miss. A
+    # task that names no subset attaches everything config.yaml declares.
     unreachable = sorted(
         {
             t.target_tool
             for t in tasks
             if t.target_tool
             and t.target_tool.startswith("mcp__")
-            and t.target_tool.split("__")[1] not in cfg.mcp_servers
+            and t.target_tool.split("__")[1]
+            not in (cfg.mcp_servers if t.mcp_servers is None else t.mcp_servers)
         }
     )
     if unreachable:
@@ -404,7 +406,9 @@ def validate_suite(
             CheckResult(
                 name=f"{suite}: trigger tools reachable",
                 status="FAIL",
-                hint=("no mcp_servers entry serves: " + ", ".join(unreachable)),
+                hint=(
+                    "no attached mcp_servers entry serves: " + ", ".join(unreachable)
+                ),
             )
         )
 

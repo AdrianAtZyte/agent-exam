@@ -143,7 +143,7 @@ def check_personal_mcp_servers(cfg=None) -> CheckResult:
             status="OK",
             hint="none set up",
         )
-    shared = sorted(set(personal) & set(getattr(cfg, "mcp_servers", None) or ()))
+    shared = sorted(set(personal) & set(cfg.mcp_servers if cfg else ()))
     if shared:
         return CheckResult(
             name="personal mcp servers",

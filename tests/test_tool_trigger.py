@@ -228,7 +228,34 @@ def test_a_tool_of_an_undeclared_server_fails_validation(tmp_path):
     fails = [c for c in validate_suite(load_config(root), "s") if c.status == "FAIL"]
 
     assert [c.hint for c in fails] == [
-        "no mcp_servers entry serves: mcp__flies__search"
+        "no attached mcp_servers entry serves: mcp__flies__search"
+    ]
+
+
+def test_a_tool_of_a_server_the_task_leaves_out_fails_validation(tmp_path):
+    """Declared is not enough — the task has to attach the server too."""
+    from agent_exam.validation import validate_suite
+
+    root = tmp_path / "proj"
+    (root / "evals" / "suites" / "s" / "tasks").mkdir(parents=True)
+    (root / "pyproject.toml").write_text('[tool.agent-exam]\nevals_dir = "evals"\n')
+    (root / "evals" / "config.yaml").write_text(
+        "default_harness: dummy\nskills_dirs: []\n"
+        "mcp_servers:\n  files:\n    command: sh\n  tickets:\n    command: sh\n"
+    )
+    (root / "evals" / "suites" / "s" / "tasks" / "elsewhere.yaml").write_text(
+        "kind: trigger\ntool: mcp__files__search\n"
+        "mcp_servers: [tickets]\npositive: [hi]\n"
+    )
+    (root / "evals" / "suites" / "s" / "tasks" / "attached.yaml").write_text(
+        "kind: trigger\ntool: mcp__files__search\n"
+        "mcp_servers: [files]\npositive: [hi]\n"
+    )
+
+    fails = [c for c in validate_suite(load_config(root), "s") if c.status == "FAIL"]
+
+    assert [c.hint for c in fails] == [
+        "no attached mcp_servers entry serves: mcp__files__search"
     ]
 
 

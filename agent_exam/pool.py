@@ -27,7 +27,6 @@ from .providers import get_provider
 from .schemas import RunResult
 from .serde import to_json_dict, write_json
 from .tasks import _FIXTURE_EMPTY_DIR_MARKERS, Task
-from .trajectory_walk import count_tool_calls
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -59,18 +58,22 @@ def _settled_on_timeout(task: Task, run_result: RunResult | None) -> bool:
     """Whether a timed-out trigger already has its answer.
 
     A positive skill trigger ends either on the first skill fire or on the wall
-    clock, so "no skill fired" can only surface as a timeout. A tool trigger of
-    either sign ends on an MCP call or on the wall clock, so "the tool was
-    never called" surfaces the same way. Once the agent has run a real tool
-    without reaching for the target it has routed elsewhere, and the partial
-    trajectory is enough to score — grading it beats discarding the evidence as
-    a framework error. The tool-call floor keeps a genuine cold-start timeout,
-    where the agent never got to act, out of the pass rate.
+    clock, so "no skill fired" can only surface as a timeout. Once the agent
+    has run a real tool without reaching for a skill it has routed elsewhere,
+    and the partial trajectory is enough to score `first_skill` — grading it
+    beats discarding the evidence as a framework error.
+
+    A tool trigger of either sign ends on a call to the target or on the wall
+    clock, and the partial trajectory answers it either way: the target is in
+    it or it is not.
+
+    The tool-call floor keeps a genuine cold-start timeout, where the agent
+    never got to act, out of the pass rate.
     """
     if run_result is None or run_result.metrics.n_tool_calls == 0:
         return False
     if task.target_tool:
-        return count_tool_calls(run_result.trajectory, task.target_tool) == 0
+        return True
     return bool(task.should_trigger) and not any(
         turn.skill_invocations for turn in run_result.trajectory
     )

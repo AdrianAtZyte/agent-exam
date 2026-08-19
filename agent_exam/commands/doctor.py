@@ -259,6 +259,11 @@ def _round_trip_check(cfg: Config, provider_name: str) -> list[CheckResult]:
         ]
 
     with tempfile.TemporaryDirectory(prefix="agent-exam-doctor-") as tmp:
+        # Laid out like an attempt: the cwd is a directory of its own under a
+        # tmp root, and whatever a provider stages beside it — an MCP config,
+        # a raw stream — is a sibling rather than something the agent sees.
+        cwd = Path(tmp) / "cwd"
+        cwd.mkdir()
         try:
             # Attach the configured servers so the probe's own session
             # reports whether each one connects — the cheapest place to
@@ -272,7 +277,7 @@ def _round_trip_check(cfg: Config, provider_name: str) -> list[CheckResult]:
             result = provider.invoke(
                 prompt="Respond with just the two characters: ok",
                 model=model,
-                cwd=Path(tmp),
+                cwd=cwd,
                 provider_options=probe_options,
                 stop_on_first_skill=False,
                 timeout_seconds=60,
