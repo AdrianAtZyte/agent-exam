@@ -77,6 +77,10 @@ class CodexCliProvider(Provider):
     omitted_model_label = "Codex CLI default model"
     task_config_model: ClassVar[type[BaseModel]] = CodexCliTaskConfig
     supports_mcp: ClassVar[bool] = True
+    # `codex exec --json`'s event stream has no session-level event for MCP
+    # server startup/connection status (only per-call `mcp_tool_call` items
+    # once the agent actually invokes one) — see `Provider.reports_mcp_connections`.
+    reports_mcp_connections: ClassVar[bool] = False
 
     def task_options(
         self, task_cfg: CodexCliTaskConfig | None, framework_cfg, task_kind: str
@@ -138,7 +142,10 @@ class CodexCliProvider(Provider):
         env_overrides = provider_options.get("env_overrides")
         staged_home = provider_options.get("codex_home")
         if staged_home:
-            env_overrides = {"CODEX_HOME": staged_home, **(env_overrides or {})}
+            # Wins over a task's own `env: {CODEX_HOME: ...}`: that staged
+            # home is where `stage_mcp_config` just wrote the MCP config,
+            # and it's what makes `--ignore-user-config` skippable below.
+            env_overrides = {**(env_overrides or {}), "CODEX_HOME": staged_home}
         env = build_child_env(env_overrides)
 
         cwd_abs = cwd.resolve()

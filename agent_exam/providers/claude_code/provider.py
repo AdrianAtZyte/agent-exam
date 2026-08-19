@@ -12,7 +12,7 @@ from claude_measure_usage.parse import find_transcript_path
 
 from ..._models import _StrictModel
 from ...errors import FrameworkError, ProviderTimeout, RateLimitError
-from ...mcp import connection_check, render_mcp_json, resolve_servers
+from ...mcp import connection_check, stage_mcp_json
 from ...ratelimit import with_retries
 from ...schemas import CheckResult, RunResult
 from ..base import Provider
@@ -400,13 +400,7 @@ class ClaudeCodeProvider(Provider):
 
     def stage_mcp_config(self, run_tmp_root: Path, cfg, servers=None) -> dict:
         """Render `{"mcpServers": ...}` for `--mcp-config`."""
-        resolved = resolve_servers(cfg, servers)
-        if not resolved:
-            return {}
-        return {
-            "mcp_config_path": render_mcp_json(run_tmp_root, resolved),
-            "mcp_server_names": sorted(resolved),
-        }
+        return stage_mcp_json(run_tmp_root, cfg, servers)
 
     def probe_checks(self, probe_result, cfg=None) -> list[CheckResult]:
         """Post-probe checks against the round-trip transcript. Catches

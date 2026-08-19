@@ -10,7 +10,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import IO
 
-from ...mcp import settles_tool_trigger
+from ...mcp import join_canonical_tool_name, settles_tool_trigger
 from ...schemas import SkillInvocation
 
 _SKILL_PATH_RE = re.compile(
@@ -115,6 +115,7 @@ def _dispatch(line: str, state: StreamState) -> None:
         if (
             state.skill_detection_enabled
             and state.negative_trigger_mode
+            and state.target_tool is None
             and state.detected_skill is None
         ):
             state.kill_signal.set()
@@ -226,7 +227,7 @@ def _tool_name_from_item(item: dict) -> str | None:
     if item_type == "mcp_tool_call":
         server, tool = item.get("server"), item.get("tool")
         if isinstance(server, str) and isinstance(tool, str):
-            return f"mcp__{server}__{tool}"
+            return join_canonical_tool_name(server, tool)
         return None
     if item_type in ("command_execution", "web_search"):
         return item_type

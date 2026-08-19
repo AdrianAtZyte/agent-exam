@@ -87,8 +87,40 @@ def render_mcp_json(run_tmp_root: Path, servers: dict[str, dict]) -> Path:
     return path
 
 
+def stage_mcp_json(run_tmp_root: Path, cfg: Config, servers: list[str] | None) -> dict:
+    """Resolve and render *servers* as an MCP JSON file, for providers whose
+    CLI takes one as a flag argument (Claude Code's ``--mcp-config``,
+    Copilot CLI's ``--additional-mcp-config``).
+    """
+    resolved = resolve_servers(cfg, servers)
+    if not resolved:
+        return {}
+    return {
+        "mcp_config_path": render_mcp_json(run_tmp_root, resolved),
+        "mcp_server_names": sorted(resolved),
+    }
+
+
 _CANONICAL_PREFIX = "mcp__"
 _SEPARATORS = ("__", "_", "-")
+
+
+def join_canonical_tool_name(server: str, tool: str) -> str:
+    """Build the canonical ``mcp__<server>__<tool>`` spelling of a call.
+
+    The one place that joins *server* and *tool* this way, so a harness that
+    reports them as separate fields (rather than one joined string) doesn't
+    hand-rolled its own copy of the format.
+    """
+    return f"{_CANONICAL_PREFIX}{server}__{tool}"
+
+
+def canonical_tool_server(name: str) -> str | None:
+    """The server *name* belongs to, if it is a canonical MCP tool name."""
+    if not is_mcp_tool(name):
+        return None
+    server, _, _ = name[len(_CANONICAL_PREFIX) :].partition("__")
+    return server or None
 
 
 def canonical_tool_name(name: str, servers: Iterable[str]) -> str:
@@ -112,7 +144,7 @@ def canonical_tool_name(name: str, servers: Iterable[str]) -> str:
         for separator in _SEPARATORS:
             prefix = f"{server}{separator}"
             if bare.startswith(prefix):
-                return f"{_CANONICAL_PREFIX}{server}__{bare[len(prefix) :]}"
+                return join_canonical_tool_name(server, bare[len(prefix) :])
     return name
 
 
@@ -166,10 +198,8 @@ def preflight(
     if not servers:
         return []
 
-    results: list[CheckResult] = []
-
     if not provider.supports_mcp:
-        results.append(
+        return [
             CheckResult(
                 name="mcp servers supported",
                 status="WARN",
@@ -177,6 +207,21 @@ def preflight(
                     f"{provider.name} attaches no MCP servers, so the "
                     f"{len(servers)} configured under mcp_servers: "
                     "do nothing in this run"
+                ),
+            )
+        ]
+
+    results: list[CheckResult] = []
+
+    if not provider.reports_mcp_connections:
+        results.append(
+            CheckResult(
+                name="mcp connection status",
+                status="WARN",
+                hint=(
+                    f"{provider.name} reports no MCP connection status at "
+                    "session start, so a server that fails to attach reads "
+                    "as a plain task failure instead of an MCP error"
                 ),
             )
         )

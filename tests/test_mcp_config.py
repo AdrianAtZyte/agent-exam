@@ -163,6 +163,23 @@ def test_preflight_warns_when_the_harness_ignores_the_config(tmp_path, monkeypat
     warn = next(r for r in results if r.name == "mcp servers supported")
     assert warn.status == "WARN"
     assert "dummy" in warn.hint
+    # A harness that ignores mcp_servers entirely never reaches the
+    # command/env checks below — they'd only ever fail over servers it
+    # was never going to attach in the first place.
+    assert [r.name for r in results] == ["mcp servers supported"]
+
+
+def test_preflight_warns_when_the_harness_reports_no_connection_status(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("MCP_TOKEN", "s3cret")
+    cfg = load_config(_project(tmp_path, _CONFIG))
+
+    results = preflight(cfg, get_provider("codex_cli"))
+
+    warn = next(r for r in results if r.name == "mcp connection status")
+    assert warn.status == "WARN"
+    assert "codex_cli" in warn.hint
 
 
 def test_preflight_is_silent_without_servers(tmp_path):

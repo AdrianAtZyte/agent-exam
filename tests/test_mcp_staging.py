@@ -257,6 +257,19 @@ def test_codex_keeps_credentials_out_of_argv(cfg, tmp_path, monkeypatch):
     assert "--ignore-user-config" not in captured["cmd"]
 
 
+def test_codex_staged_home_wins_over_a_tasks_own_env_override(cfg, tmp_path):
+    """A task's own `env: {CODEX_HOME: ...}` must not silently steer the
+    process away from the home `stage_mcp_config` just wrote the MCP
+    servers into — that CODEX_HOME has no MCP config, so the servers would
+    never attach."""
+    options = CodexCliProvider().stage_mcp_config(tmp_path, cfg, ["files"])
+    options["env_overrides"] = {"CODEX_HOME": str(tmp_path / "task-own-home")}
+
+    env = _capture_cmd(CodexCliProvider(), options, cwd=tmp_path)["env"]
+
+    assert env["CODEX_HOME"] == options["codex_home"]
+
+
 def test_codex_without_servers_keeps_ignoring_the_user_config(cfg, tmp_path):
     assert CodexCliProvider().stage_mcp_config(tmp_path, cfg, []) == {}
 

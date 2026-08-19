@@ -127,12 +127,16 @@ def _dispatch(line: str, state: StreamState) -> None:
                     state.kill_signal.set()
 
     elif event_type == "assistant.turn_end":
-        # The turn ending without the target is decisive in itself. For a tool
-        # target it is the only such signal; for a skill target it backs up
-        # assistant.message, in case the stream is missing that event.
+        # Backs up assistant.message, in case the stream is missing that
+        # event, for a skill target: the turn ending without the skill
+        # firing is decisive there. A tool target settles on the target
+        # call alone (see settles_tool_trigger) and otherwise runs the
+        # attempt out to the wall clock, since the agent can still reach
+        # for it on a later turn.
         if (
             state.skill_detection_enabled
             and state.negative_trigger_mode
+            and state.target_tool is None
             and not state.kill_signal.is_set()
         ):
             state.kill_signal.set()

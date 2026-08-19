@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .errors import UsageError
+from .mcp import canonical_tool_server, is_mcp_tool
 from .schemas import CheckResult
 from .tasks import load_suite, load_suite_config
 
@@ -396,8 +397,8 @@ def validate_suite(
             t.target_tool
             for t in tasks
             if t.target_tool
-            and t.target_tool.startswith("mcp__")
-            and t.target_tool.split("__")[1]
+            and is_mcp_tool(t.target_tool)
+            and canonical_tool_server(t.target_tool)
             not in (cfg.mcp_servers if t.mcp_servers is None else t.mcp_servers)
         }
     )

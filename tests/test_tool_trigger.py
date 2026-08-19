@@ -290,6 +290,23 @@ def test_copilot_negative_case_does_not_settle_on_the_first_message():
     assert not state.kill_signal.is_set()
 
 
+def test_copilot_negative_case_does_not_settle_on_turn_end():
+    from agent_exam.providers.copilot_cli.provider import CopilotCliProvider
+    from agent_exam.providers.copilot_cli.stream_parser import (
+        StreamState as CopilotState,
+    )
+    from agent_exam.providers.copilot_cli.stream_parser import _dispatch as copilot
+
+    state = CopilotState(provider=CopilotCliProvider())
+    state.skill_detection_enabled = True
+    state.target_tool = _TARGET
+    state.negative_trigger_mode = True
+
+    copilot(json.dumps({"type": "assistant.turn_end"}), state)
+
+    assert not state.kill_signal.is_set()
+
+
 def test_opencode_negative_case_does_not_settle_on_a_finished_tool():
     from agent_exam.providers.opencode.stream_parser import StreamState as OpenCodeState
     from agent_exam.providers.opencode.stream_parser import _dispatch as opencode
@@ -304,6 +321,30 @@ def test_opencode_negative_case_does_not_settle_on_a_finished_tool():
             {
                 "type": "tool_use",
                 "part": {"tool": "grep", "state": {"status": "completed"}},
+            }
+        ),
+        state,
+    )
+
+    assert not state.kill_signal.is_set()
+
+
+def test_opencode_does_not_settle_on_a_running_target_tool():
+    """A `running` status is not decisive — the same part repeats once the
+    call actually finishes, and cutting early would kill it mid-execution."""
+    from agent_exam.providers.opencode.stream_parser import StreamState as OpenCodeState
+    from agent_exam.providers.opencode.stream_parser import _dispatch as opencode
+
+    state = OpenCodeState(provider=DummyProvider())
+    state.skill_detection_enabled = True
+    state.target_tool = _TARGET
+    state.mcp_server_names = ("files",)
+
+    opencode(
+        json.dumps(
+            {
+                "type": "tool_use",
+                "part": {"tool": "files_search", "state": {"status": "running"}},
             }
         ),
         state,
@@ -329,6 +370,19 @@ def test_codex_negative_case_does_not_settle_on_a_command():
         ),
         state,
     )
+
+    assert not state.kill_signal.is_set()
+
+
+def test_codex_negative_case_does_not_settle_on_turn_completed():
+    from agent_exam.providers.codex_cli.stream_parser import StreamState as CodexState
+    from agent_exam.providers.codex_cli.stream_parser import _dispatch as codex
+
+    state = CodexState(skill_detection_enabled=True)
+    state.target_tool = _TARGET
+    state.negative_trigger_mode = True
+
+    codex(json.dumps({"type": "turn.completed", "usage": {}}), state)
 
     assert not state.kill_signal.is_set()
 

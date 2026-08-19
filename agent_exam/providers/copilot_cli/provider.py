@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from ..._models import _StrictModel
 from ...errors import FrameworkError, ProviderTimeout
-from ...mcp import render_mcp_json, resolve_servers
+from ...mcp import connection_check, stage_mcp_json
 from ...ratelimit import with_retries
 from ..base import Provider
 from ..child_env import build_child_env
@@ -256,13 +256,7 @@ class CopilotCliProvider(Provider):
 
     def stage_mcp_config(self, run_tmp_root: Path, cfg, servers=None) -> dict:
         """Render `{"mcpServers": ...}` for `--additional-mcp-config`."""
-        resolved = resolve_servers(cfg, servers)
-        if not resolved:
-            return {}
-        return {
-            "mcp_config_path": render_mcp_json(run_tmp_root, resolved),
-            "mcp_server_names": sorted(resolved),
-        }
+        return stage_mcp_json(run_tmp_root, cfg, servers)
 
     def preflight(self, cfg=None) -> list[CheckResult]:
         """Binary version check + personal skill and MCP server leak warnings."""
@@ -284,10 +278,16 @@ class CopilotCliProvider(Provider):
         return results
 
     def probe_checks(self, probe_result, cfg=None) -> list[CheckResult]:
-        """Post-probe: verify the model name was captured."""
+        """Post-probe: verify the model name was captured and every
+        attached MCP server connected."""
         from .doctor_probes import check_probe_model
 
-        return [check_probe_model(probe_result)]
+        results = [check_probe_model(probe_result)]
+        if cfg is not None and cfg.mcp_servers:
+            results.append(
+                connection_check(probe_result.mcp_server_status, cfg.mcp_servers)
+            )
+        return results
 
     def pre_run_warnings(self, cfg=None) -> list[CheckResult]:
         """Warn before any trial if personal skills or MCP servers could leak."""

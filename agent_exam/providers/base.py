@@ -54,6 +54,15 @@ class Provider:
     #: provider, which imports the module the preflight lives in.
     supports_mcp: ClassVar[bool] = False
 
+    reports_mcp_connections: ClassVar[bool] = True
+    """Whether this harness announces per-server MCP connection status at
+    session start (see :func:`agent_exam.mcp.connection_check`). Meaningless
+    when :attr:`supports_mcp` is ``False``. A harness whose event stream
+    carries no such signal overrides this to ``False`` so
+    :func:`agent_exam.mcp.preflight` can say so, rather than a dead server
+    reading as a plain task failure with no indication why.
+    """
+
     #: Human-readable model source used when ``invoke(..., model="")``
     #: intentionally omits the provider's model flag. ``None`` means doctor
     #: should not run LLM probes without an explicit configured model.

@@ -133,18 +133,20 @@ class McpHttpServer(_StrictModel):
     headers: dict[str, str] = Field(default_factory=dict)
 
 
-#: One entry under `mcp_servers:`. A plain union rather than a discriminated
-#: one: `type` is optional in the MCP JSON everyone copy-pastes, so the two
-#: branches are told apart by `command` vs `url`.
 McpServerConfig = McpStdioServer | McpHttpServer
+"""One entry under `mcp_servers:`. A plain union rather than a discriminated
+one: `type` is optional in the MCP JSON everyone copy-pastes, so the two
+branches are told apart by `command` vs `url`.
+"""
 
-#: A server name under `mcp_servers:`. Narrow because the name is both half
-#: of the `mcp__<server>__<tool>` tool names assertions match on — where a
-#: doubled underscore would split in the wrong place — and a bare TOML key
-#: path in the config codex_cli renders, where a dot would nest.
 McpServerName = Annotated[
     str, StringConstraints(pattern=r"^[A-Za-z0-9-]+(_[A-Za-z0-9-]+)*$")
 ]
+"""A server name under `mcp_servers:`. Narrow because the name is both half
+of the `mcp__<server>__<tool>` tool names assertions match on — where a
+doubled underscore would split in the wrong place — and a bare TOML key
+path in the config codex_cli renders, where a dot would nest.
+"""
 
 
 class Config(_StrictModel):

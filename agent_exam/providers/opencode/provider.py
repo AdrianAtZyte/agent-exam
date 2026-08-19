@@ -11,7 +11,7 @@ from pydantic import BaseModel, field_validator
 
 from ..._models import _StrictModel
 from ...errors import FrameworkError, ProviderTimeout
-from ...mcp import resolve_servers
+from ...mcp import connection_check, resolve_servers
 from ...ratelimit import with_retries
 from ...schemas import CheckResult, RunResult
 from ..base import Provider
@@ -350,7 +350,12 @@ class OpenCodeProvider(Provider):
     def probe_checks(self, probe_result, cfg=None) -> list[CheckResult]:
         from .doctor_probes import check_probe_model
 
-        return [check_probe_model(probe_result)]
+        results = [check_probe_model(probe_result)]
+        if cfg is not None and cfg.mcp_servers:
+            results.append(
+                connection_check(probe_result.mcp_server_status, cfg.mcp_servers)
+            )
+        return results
 
     def pre_run_warnings(self, cfg=None) -> list[CheckResult]:
         return []
@@ -384,15 +389,17 @@ def build_permission_config(
     one that doesn't name them denies them, so the tools the task is about
     never run. A permission key is matched as a wildcard against the tool
     name, so ``<server>*`` covers a server's tool set whichever way
-    OpenCode joins server and tool.
+    OpenCode joins server and tool. Added even when ``permission`` is an
+    explicit override, so an attached server isn't left to whatever that
+    override's own default (e.g. a bare ``"*": "ask"``) would do to it.
     """
     permission_config = dict(permission or {})
     if not permission_config and allowed_tools is not None:
         permission_config["*"] = "deny"
         for tool in allowed_tools:
             permission_config[tool] = "allow"
-        for name in mcp_servers or ():
-            permission_config[f"{name}*"] = "allow"
+    for name in mcp_servers or ():
+        permission_config.setdefault(f"{name}*", "allow")
     if "external_directory" not in permission_config:
         permission_config["external_directory"] = "deny"
     return permission_config

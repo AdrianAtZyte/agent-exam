@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ...mcp import join_canonical_tool_name
 from ...schemas import (
     Metrics,
     RunResult,
@@ -26,7 +27,7 @@ def _request_tool_name(req: dict) -> str:
     """
     server, tool = req.get("mcpServerName"), req.get("mcpToolName")
     if isinstance(server, str) and isinstance(tool, str) and server and tool:
-        return f"mcp__{server}__{tool}"
+        return join_canonical_tool_name(server, tool)
     return req.get("name", "")
 
 

@@ -143,11 +143,16 @@ def _dispatch_skill_detection(part: dict, state: StreamState) -> None:
     if state.target_tool:
         # OpenCode publishes a tool part on stdout once the call is over, so
         # the kill lands on the finished call and saves the rest of the turn
-        # rather than the call itself.
-        if isinstance(tool, str) and settles_tool_trigger(
-            canonical_tool_name(tool, state.mcp_server_names),
-            state.target_tool,
-            state.negative_trigger_mode,
+        # rather than the call itself. `running` is not decisive — the same
+        # part repeats once the call actually finishes.
+        if (
+            isinstance(tool, str)
+            and tool_status in ("completed", "error")
+            and settles_tool_trigger(
+                canonical_tool_name(tool, state.mcp_server_names),
+                state.target_tool,
+                state.negative_trigger_mode,
+            )
         ):
             state.detected_tool = tool
             state.kill_signal.set()
