@@ -136,6 +136,20 @@ def test_opencode_records_nothing_without_mcp_logs():
     assert _opencode_drain("INFO  service=file init\n").mcp_server_status is None
 
 
+def test_opencode_connected_status_does_not_regress_on_a_stray_found_line():
+    """A repeat `found` line for an already-connected server (e.g. a second
+    config read racing the first) must not flip it back to failed."""
+    logs = (
+        "INFO  2026-08-19T08:57:53 +5ms service=mcp key=files type=local found\n"
+        "INFO  2026-08-19T08:57:55 +74ms service=mcp key=files toolCount=13 "
+        "create() successfully created client\n"
+        "INFO  2026-08-19T08:57:56 +1ms service=mcp key=files type=local found\n"
+    )
+    state = _opencode_drain(logs)
+
+    assert state.mcp_server_status == {"files": "connected"}
+
+
 def test_codex_drops_the_path_alias_warning_from_the_stderr_tail():
     """A staged CODEX_HOME is always a temp dir, so codex warns on every run
     and would otherwise be the whole tail of an unrelated failure."""

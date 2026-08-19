@@ -9,6 +9,7 @@ import pytest
 from agent_exam.providers.copilot_cli.doctor_probes import (
     _personal_mcp_servers,
     check_personal_mcp_servers,
+    personal_mcp_servers,
 )
 from agent_exam.providers.copilot_cli.provider import CopilotCliProvider
 
@@ -205,10 +206,14 @@ def test_personal_mcp_server_sharing_a_name_warns(monkeypatch):
 
 
 def test_personal_mcp_servers_survives_an_unusable_copilot(monkeypatch):
-    """A `copilot mcp list` that cannot run leaves nothing to disable."""
+    """A `copilot mcp list` that cannot run leaves nothing to disable, and
+    the check WARNs rather than reporting a false "none set up"."""
 
     def fake_run(*args, **kwargs):
         raise OSError("boom")
 
     monkeypatch.setattr("subprocess.run", fake_run)
-    assert check_personal_mcp_servers(None).hint == "none set up"
+    assert personal_mcp_servers() == []
+    result = check_personal_mcp_servers(None)
+    assert result.status == "WARN"
+    assert "copilot mcp list" in result.hint

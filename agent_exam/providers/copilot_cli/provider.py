@@ -88,13 +88,13 @@ class CopilotCliProvider(Provider):
         if model:
             cmd.extend(["--model", model])
 
-        # `--additional-mcp-config` augments Copilot CLI's other MCP sources
-        # rather than replacing them, and there is no strict counterpart, so
-        # each is turned off by hand — they would otherwise compete for tool
-        # calls with the servers under evaluation. The built-in servers go as
-        # a set; the developer's user config and installed plugins go by
-        # name. The remaining source is the workspace, which here is the
-        # attempt's own staged directory.
+        # `--additional-mcp-config` augments Copilot CLI's other MCP sources.
+        # There is no strict counterpart, so each source is turned off by
+        # hand — they would otherwise compete for tool calls with the
+        # servers under evaluation. The built-in servers go as a set; the
+        # developer's user config and installed plugins go by name. The
+        # remaining source is the workspace, which here is the attempt's own
+        # staged directory.
         #
         # A name this run attaches is left alone: `--disable-mcp-server`
         # works on the merged set, so disabling it would take the attached

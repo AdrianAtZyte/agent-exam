@@ -93,7 +93,10 @@ def _dispatch_log(line: str, state: StreamState) -> None:
     once its client exists. Whatever can go wrong in between — a command
     that is not on `PATH`, a URL that does not answer — leaves it at the
     first line with no further mention, so ``found`` starts a server off as
-    failed and only the client line clears it.
+    failed and only the client line clears it. A status never regresses
+    from ``connected`` back to ``failed``, so a stray repeat of the
+    ``found`` line (a second config read racing the first) can't undo an
+    already-successful connection.
     """
     match = _MCP_LOG.search(line)
     if match is None:
@@ -106,7 +109,10 @@ def _dispatch_log(line: str, state: StreamState) -> None:
         return
     if state.mcp_server_status is None:
         state.mcp_server_status = {}
-    state.mcp_server_status[match.group(1)] = status
+    key = match.group(1)
+    if status == "failed" and state.mcp_server_status.get(key) == "connected":
+        return
+    state.mcp_server_status[key] = status
 
 
 def _dispatch(line: str, state: StreamState) -> None:

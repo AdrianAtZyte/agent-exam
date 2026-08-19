@@ -57,7 +57,9 @@ def check_probe_model(probe_result) -> CheckResult:
 
 
 @cache
-def _personal_mcp_servers() -> tuple[str, ...]:
+def _personal_mcp_servers() -> tuple[str, ...] | None:
+    """The developer's personal MCP server names, or ``None`` if
+    ``copilot mcp list --json`` could not be run or parsed."""
     try:
         out = subprocess.run(
             ["copilot", "mcp", "list", "--json"],
@@ -71,7 +73,7 @@ def _personal_mcp_servers() -> tuple[str, ...]:
         )
         data = json.loads(out.stdout)
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
-        return ()
+        return None
     servers = data.get("mcpServers") if isinstance(data, dict) else None
     return tuple(sorted(servers)) if isinstance(servers, dict) else ()
 
@@ -88,9 +90,11 @@ def personal_mcp_servers() -> list[str]:
 
     Asked of ``copilot`` itself, which knows where each source lives, and
     asked once per process, since every attempt of a run has the same answer
-    and the call takes a few seconds.
+    and the call takes a few seconds. Empty when the probe itself could not
+    be run — see :func:`check_personal_mcp_servers` for that case surfaced as
+    a check.
     """
-    return list(_personal_mcp_servers())
+    return list(_personal_mcp_servers() or ())
 
 
 def check_personal_mcp_servers(cfg=None) -> CheckResult:
@@ -101,7 +105,17 @@ def check_personal_mcp_servers(cfg=None) -> CheckResult:
     resolves to the configured definition, and the developer's server of that
     name cannot be disabled without taking the configured one with it.
     """
-    personal = personal_mcp_servers()
+    probed = _personal_mcp_servers()
+    if probed is None:
+        return CheckResult(
+            name="personal mcp servers",
+            status="WARN",
+            hint=(
+                "`copilot mcp list --json` failed; cannot confirm your own "
+                "MCP servers are disabled for this trial"
+            ),
+        )
+    personal = list(probed)
     if not personal:
         return CheckResult(
             name="personal mcp servers",

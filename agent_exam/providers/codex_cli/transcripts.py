@@ -605,7 +605,9 @@ def _session_tool_input(name: str, raw_arguments: Any) -> dict[str, Any]:
 def _canonical_tool_call_payload(payload: dict) -> dict:
     """Reshape Codex's dedicated tool-call ResponseItems into the function_call
     shape (name + arguments + call_id) so they flow through the normal tool-call
-    builder. `function_call`/`tool_search_call` are passed through unchanged.
+    builder. `function_call`/`tool_search_call` go through `_with_namespace`,
+    which qualifies an MCP call's name with its server when the payload
+    carries a `namespace` field.
 
     `local_shell_call` is the Responses-API shell; it carries an `action`
     (`{type: exec, command: [...]}`) instead of `arguments`, and its result

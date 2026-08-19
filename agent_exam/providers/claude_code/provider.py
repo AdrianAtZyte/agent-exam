@@ -119,8 +119,9 @@ class ClaudeCodeProvider(Provider):
             cmd.extend(["--permission-mode", str(mode)])
         mcp_config = provider_options.get("mcp_config_path")
         if mcp_config:
-            # `--mcp-config` takes a variadic <configs...>, so it has to be
-            # followed by a flag rather than by a positional value.
+            # `--mcp-config` takes a variadic <configs...>: whatever argv
+            # entry follows it must itself be a flag, or it gets swallowed
+            # as another config path.
             cmd.extend(["--mcp-config", str(mcp_config)])
         # Always strict, even with no servers of our own: without it the
         # developer's `~/.claude.json` servers load into the trial, the
