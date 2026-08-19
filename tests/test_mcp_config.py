@@ -97,6 +97,20 @@ def test_config_rejects_a_server_name_with_a_dot(tmp_path):
         load_config(root)
 
 
+def test_config_rejects_a_server_name_with_a_doubled_underscore(tmp_path):
+    """`mcp__a__b__search` would read as a call to `b` on server `a`."""
+    root = _project(
+        tmp_path,
+        """\
+        mcp_servers:
+          a__b:
+            command: mcp-files
+        """,
+    )
+    with pytest.raises(UsageError):
+        load_config(root)
+
+
 def test_resolve_expands_env_refs(tmp_path, monkeypatch):
     monkeypatch.setenv("MCP_TOKEN", "s3cret")
     cfg = load_config(_project(tmp_path, _CONFIG))

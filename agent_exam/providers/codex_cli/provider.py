@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -338,8 +339,7 @@ class CodexCliProvider(Provider):
         attempt at it. Codex takes configuration either from that file or from
         `-c` overrides on its command line, and a server's ``env`` holds
         credentials, which argv would expose to any local process through
-        ``ps``. Codex has no place for per-request HTTP headers, so a server
-        that needs them cannot run here.
+        ``ps``.
         """
         table: dict[str, dict] = {}
         for name, server in resolve_servers(cfg, servers).items():
@@ -348,13 +348,12 @@ class CodexCliProvider(Provider):
                     k: v for k, v in server.items() if k in ("command", "args", "env")
                 }
                 continue
-            if server.get("headers"):
-                raise UsageError(
-                    f"mcp_servers.{name}: codex_cli cannot pass headers to an "
-                    "HTTP MCP server; scope the task with `providers:` or drop "
-                    "the headers"
-                )
             table[name] = {"url": server["url"]}
+            headers = cfg.mcp_servers[name].headers
+            if headers:
+                table[name]["bearer_token_env_var"] = _bearer_token_env_var(
+                    name, headers
+                )
         if not table:
             return {}
         return {
@@ -659,6 +658,29 @@ def _preserve_failed_stream(raw_path: Path) -> Path:
         return target
     except OSError:
         return raw_path
+
+
+_BEARER_ENV_REF = re.compile(r"^Bearer\s+\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+
+
+def _bearer_token_env_var(name: str, headers: dict[str, str]) -> str:
+    """The variable an ``Authorization: Bearer ${VAR}`` header reads.
+
+    Codex sends no headers of its own; it authenticates against an HTTP MCP
+    server by reading a bearer token out of a named environment variable at
+    launch. So it wants *headers* as written rather than resolved, and any
+    other header has nowhere to go.
+    """
+    auth = next((v for k, v in headers.items() if k.lower() == "authorization"), None)
+    match = _BEARER_ENV_REF.match(auth or "")
+    if match is None or len(headers) > 1:
+        raise UsageError(
+            f"mcp_servers.{name}: codex_cli passes no HTTP header other than "
+            'an `Authorization: "Bearer ${VAR}"` it reads from the '
+            "environment; scope the task with `providers:` to leave codex_cli "
+            "out of it"
+        )
+    return match.group(1)
 
 
 def _toml_key(value: str) -> str:

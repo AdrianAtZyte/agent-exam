@@ -56,76 +56,41 @@ def check_probe_model(probe_result) -> CheckResult:
     )
 
 
-# Where a plugin declares its MCP servers: a config file of its own, or an
-# `mcpServers` key in its manifest holding either the same mapping or a path
-# to a file with one.
-_PLUGIN_CONFIGS = (".mcp.json", ".github/mcp.json")
-_PLUGIN_MANIFESTS = (
-    ".plugin/plugin.json",
-    ".github/plugin/plugin.json",
-    ".claude-plugin/plugin.json",
-)
-
-
-def _read_json(path: Path):
-    try:
-        return json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def _server_names(data) -> list[str]:
-    servers = data.get("mcpServers") if isinstance(data, dict) else None
-    return sorted(servers) if isinstance(servers, dict) else []
-
-
-def _plugin_mcp_servers(plugin_dir: Path) -> list[str]:
-    for rel in _PLUGIN_CONFIGS:
-        data = _read_json(plugin_dir / rel)
-        if data is not None:
-            return _server_names(data)
-    for rel in _PLUGIN_MANIFESTS:
-        data = _read_json(plugin_dir / rel)
-        servers = data.get("mcpServers") if isinstance(data, dict) else None
-        if isinstance(servers, str):
-            return _server_names(_read_json(plugin_dir / servers))
-        if servers is not None:
-            return _server_names(data)
-    return []
-
-
 @cache
-def _scan_personal_mcp_servers(
-    user_config: Path, plugins_root: Path
-) -> tuple[str, ...]:
-    names = set(_server_names(_read_json(user_config)))
-    for plugin_dir in sorted(plugins_root.glob("*/*")):
-        names.update(_plugin_mcp_servers(plugin_dir))
-    return tuple(sorted(names))
+def _personal_mcp_servers() -> tuple[str, ...]:
+    try:
+        out = subprocess.run(
+            ["copilot", "mcp", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+            # From the home directory, so nothing of the project under
+            # evaluation counts as a workspace source.
+            cwd=Path.home(),
+        )
+        data = json.loads(out.stdout)
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        return ()
+    servers = data.get("mcpServers") if isinstance(data, dict) else None
+    return tuple(sorted(servers)) if isinstance(servers, dict) else ()
 
 
-def personal_mcp_servers(
-    config_path: Path | None = None, plugins_dir: Path | None = None
-) -> list[str]:
+def personal_mcp_servers() -> list[str]:
     """Names of the MCP servers the developer's own Copilot CLI setup loads,
-    from its user config file and from every installed plugin.
+    across every source it merges — user config, installed plugins, built-ins.
 
     ``--additional-mcp-config`` augments those rather than replacing them, so
-    each of these is disabled by name to keep a trial hermetic. Whether a
-    plugin is currently enabled is not consulted: disabling a server that
-    would not have loaded anyway costs nothing, while missing one that does
-    breaks the trial.
+    each of these is disabled by name to keep a trial hermetic. Whether one
+    would have loaded is not worth establishing: disabling a server that was
+    never going to load costs nothing, while missing one that does breaks the
+    trial.
 
-    Scanned once per pair of paths, since every attempt of a run asks the
-    same question of the same home directory.
+    Asked of ``copilot`` itself, which knows where each source lives, and
+    asked once per process, since every attempt of a run has the same answer
+    and the call takes a few seconds.
     """
-    copilot_dir = Path.home() / ".copilot"
-    return list(
-        _scan_personal_mcp_servers(
-            config_path or copilot_dir / "mcp-config.json",
-            plugins_dir or copilot_dir / "installed-plugins",
-        )
-    )
+    return list(_personal_mcp_servers())
 
 
 def check_personal_mcp_servers(cfg=None) -> CheckResult:

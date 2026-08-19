@@ -15,7 +15,6 @@ from agent_exam.config import load_config
 from agent_exam.errors import UsageError
 from agent_exam.providers.claude_code.provider import ClaudeCodeProvider
 from agent_exam.providers.codex_cli.provider import CodexCliProvider
-from agent_exam.providers.copilot_cli.doctor_probes import personal_mcp_servers
 from agent_exam.providers.copilot_cli.provider import CopilotCliProvider
 from agent_exam.providers.opencode.provider import OpenCodeProvider
 from agent_exam.runner import RunRequest, run
@@ -44,6 +43,17 @@ def cfg(tmp_path, monkeypatch):
     (root / "pyproject.toml").write_text('[tool.agent-exam]\nevals_dir = "evals"\n')
     (root / "evals" / "config.yaml").write_text(dedent(_CONFIG))
     return load_config(root)
+
+
+@pytest.fixture(autouse=True)
+def _no_personal_copilot_servers(monkeypatch):
+    """Keep `copilot mcp list` out of the argv these tests capture — the tests
+    that care about the developer's own servers name them themselves.
+    """
+    monkeypatch.setattr(
+        "agent_exam.providers.copilot_cli.provider.personal_mcp_servers",
+        list,
+    )
 
 
 def _rendered(options: dict) -> dict:
@@ -254,9 +264,27 @@ def test_codex_without_servers_keeps_ignoring_the_user_config(cfg, tmp_path):
     assert "--ignore-user-config" in cmd
 
 
-def test_codex_refuses_an_http_server_with_headers(cfg, tmp_path):
-    with pytest.raises(UsageError, match=r"remote.*headers"):
-        CodexCliProvider().stage_mcp_config(tmp_path, cfg, ["remote"])
+def test_codex_reads_a_bearer_token_from_the_environment(cfg, tmp_path):
+    """Codex sends no headers of its own, so an `Authorization: Bearer` one
+    becomes the variable it reads the token from at launch."""
+    options = CodexCliProvider().stage_mcp_config(tmp_path, cfg, ["remote"])
+    home = Path(options["codex_home"])
+
+    assert (home / "config.toml").read_text() == (
+        "[mcp_servers]\n"
+        '"remote" = {"url" = "https://example.test/mcp", '
+        '"bearer_token_env_var" = "MCP_TOKEN"}\n'
+    )
+
+
+def test_codex_refuses_a_header_it_cannot_send(cfg, tmp_path):
+    root = tmp_path / "proj"
+    (root / "evals" / "config.yaml").write_text(
+        dedent(_CONFIG).replace('Authorization: "Bearer ${MCP_TOKEN}"', "X-Key: k")
+    )
+
+    with pytest.raises(UsageError, match=r"remote.*Authorization"):
+        CodexCliProvider().stage_mcp_config(tmp_path, load_config(root), ["remote"])
 
 
 def test_copilot_argv_carries_the_config_path(cfg, tmp_path):
@@ -273,11 +301,9 @@ def test_copilot_argv_carries_the_config_path(cfg, tmp_path):
 def test_copilot_disables_the_developers_own_servers(cfg, tmp_path, monkeypatch):
     """Copilot CLI augments its own config rather than replacing it, so the
     personal servers have to be turned off one by one."""
-    personal = tmp_path / "mcp-config.json"
-    personal.write_text(json.dumps({"mcpServers": {"personal": {}, "files": {}}}))
     monkeypatch.setattr(
         "agent_exam.providers.copilot_cli.provider.personal_mcp_servers",
-        lambda: personal_mcp_servers(personal),
+        lambda: ["files", "personal"],
     )
     options = CopilotCliProvider().stage_mcp_config(tmp_path, cfg, ["files"])
 
@@ -287,37 +313,6 @@ def test_copilot_disables_the_developers_own_servers(cfg, tmp_path, monkeypatch)
     # `files` is ours this run, so disabling it would disable what the task
     # is about.
     assert "files" not in cmd
-
-
-def test_copilot_disables_plugin_servers(cfg, tmp_path, monkeypatch):
-    """Installed plugins are an MCP source of their own, whether they ship a
-    config file or declare the servers in their manifest."""
-    plugins = tmp_path / "installed-plugins"
-    own_file = plugins / "market" / "with-config"
-    (own_file / ".github").mkdir(parents=True)
-    (own_file / ".github" / "mcp.json").write_text(
-        json.dumps({"mcpServers": {"from-file": {}}})
-    )
-    manifest = plugins / "market" / "with-manifest"
-    (manifest / ".plugin").mkdir(parents=True)
-    (manifest / ".plugin" / "plugin.json").write_text(
-        json.dumps({"name": "with-manifest", "mcpServers": "./servers.json"})
-    )
-    (manifest / "servers.json").write_text(
-        json.dumps({"mcpServers": {"from-manifest": {}}})
-    )
-    monkeypatch.setattr(
-        "agent_exam.providers.copilot_cli.provider.personal_mcp_servers",
-        lambda: personal_mcp_servers(tmp_path / "absent.json", plugins),
-    )
-    options = CopilotCliProvider().stage_mcp_config(tmp_path, cfg, ["files"])
-
-    cmd = _capture_cmd(CopilotCliProvider(), options, cwd=tmp_path)["cmd"]
-
-    disabled = [
-        cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--disable-mcp-server"
-    ]
-    assert disabled == ["from-file", "from-manifest"]
 
 
 def test_opencode_allowlist_allows_each_server(cfg, tmp_path):

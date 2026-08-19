@@ -79,8 +79,8 @@ def render_mcp_json(run_tmp_root: Path, servers: dict[str, dict]) -> Path:
 
     The file lands directly under *run_tmp_root*, next to the attempt cwd
     rather than in it, so a rendered credential is not archived with the
-    run's artifacts. The name is random because trigger attempts share a
-    cwd and would otherwise overwrite each other's file mid-run.
+    run's artifacts. The name is random so that the configs of the several
+    server sets a run attaches cannot collide.
     """
     path = run_tmp_root / f"{uuid.uuid4().hex[:12]}.mcp.json"
     path.write_text(json.dumps({"mcpServers": servers}))

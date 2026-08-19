@@ -324,6 +324,11 @@ variable that is not set fails the run at its start, before any trial — only
 for the servers that run's tasks attach, so a credential is needed by the runs
 that use it and not by every run.
 
+``codex_cli`` sends no header of its own — it reads a bearer token out of the
+environment at launch — so ``Authorization: "Bearer ${VAR}"`` is the only
+header it can carry, and a server needing any other has to be scoped away from
+it with ``providers:``.
+
 Tasks attach every configured server unless they name a subset with their own
 ``mcp_servers:`` — see :doc:`task-yaml`. Definitions belong here rather than in
 a task file because reports serialize task files verbatim.
@@ -342,7 +347,8 @@ result. The statuses land in the attempt's :file:`attempt.json`.
 Assertions grade MCP tool calls through the ordinary ``tool_called``,
 ``tool_not_called`` and ``tool_count`` types, naming the tool as
 ``mcp__<server>__<tool>`` whichever harness ran, so a server name is limited
-to letters, digits, ``-`` and ``_``.
+to letters, digits, ``-`` and ``_``, the last of which can neither be doubled
+nor sit at either end.
 
 A full example
 ==============

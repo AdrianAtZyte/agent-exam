@@ -63,20 +63,24 @@ def _settled_on_timeout(task: Task, run_result: RunResult | None) -> bool:
     and the partial trajectory is enough to score `first_skill` — grading it
     beats discarding the evidence as a framework error.
 
-    A tool trigger of either sign ends on a call to the target or on the wall
-    clock, and the partial trajectory answers it either way: the target is in
-    it or it is not.
+    A positive tool trigger is the same story: it is cut on the first MCP call,
+    so reaching the wall clock means none happened.
+
+    A negative case of either kind keeps its timeout. Nothing cuts one short of
+    the turn ending, so a timeout means the agent was still working, and the
+    target missing from a partial trajectory is no evidence that the next call
+    would not have been it.
 
     The tool-call floor keeps a genuine cold-start timeout, where the agent
     never got to act, out of the pass rate.
     """
     if run_result is None or run_result.metrics.n_tool_calls == 0:
         return False
+    if not task.should_trigger:
+        return False
     if task.target_tool:
         return True
-    return bool(task.should_trigger) and not any(
-        turn.skill_invocations for turn in run_result.trajectory
-    )
+    return not any(turn.skill_invocations for turn in run_result.trajectory)
 
 
 _FIXTURE_COPY_EXCLUDES = shutil.ignore_patterns(*_FIXTURE_EMPTY_DIR_MARKERS)

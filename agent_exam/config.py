@@ -139,9 +139,12 @@ class McpHttpServer(_StrictModel):
 McpServerConfig = McpStdioServer | McpHttpServer
 
 #: A server name under `mcp_servers:`. Narrow because the name is both half
-#: of the `mcp__<server>__<tool>` tool names assertions match on and a bare
-#: TOML key path in the config codex_cli renders, where a dot would nest.
-McpServerName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]+$")]
+#: of the `mcp__<server>__<tool>` tool names assertions match on — where a
+#: doubled underscore would split in the wrong place — and a bare TOML key
+#: path in the config codex_cli renders, where a dot would nest.
+McpServerName = Annotated[
+    str, StringConstraints(pattern=r"^[A-Za-z0-9-]+(_[A-Za-z0-9-]+)*$")
+]
 
 
 class Config(_StrictModel):
