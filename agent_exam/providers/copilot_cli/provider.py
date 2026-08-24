@@ -39,7 +39,6 @@ class CopilotCliProvider(Provider):
     # `--allow-tool` values.
     safe_judge_tools = ("view", "glob", "grep")
     task_config_model: ClassVar[type[BaseModel]] = CopilotCliTaskConfig
-    supports_mcp: ClassVar[bool] = True
 
     def task_options(
         self, task_cfg: CopilotCliTaskConfig | None, framework_cfg, task_kind: str

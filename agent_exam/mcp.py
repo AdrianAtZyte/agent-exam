@@ -115,6 +115,15 @@ def join_canonical_tool_name(server: str, tool: str) -> str:
     return f"{_CANONICAL_PREFIX}{server}__{tool}"
 
 
+def canonical_server_prefix(server: str) -> str:
+    """Build the ``mcp__<server>`` prefix that names every tool of *server*.
+
+    What Claude Code's ``--allowed-tools`` expects to pre-approve a whole
+    MCP server rather than one tool of it.
+    """
+    return f"{_CANONICAL_PREFIX}{server}"
+
+
 def canonical_tool_server(name: str) -> str | None:
     """The server *name* belongs to, if it is a canonical MCP tool name."""
     if not is_mcp_tool(name):

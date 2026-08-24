@@ -12,7 +12,7 @@ from claude_measure_usage.parse import find_transcript_path
 
 from ..._models import _StrictModel
 from ...errors import FrameworkError, ProviderTimeout, RateLimitError
-from ...mcp import probe_connection_check, stage_mcp_json
+from ...mcp import canonical_server_prefix, probe_connection_check, stage_mcp_json
 from ...ratelimit import with_retries
 from ...schemas import CheckResult, RunResult
 from ..base import Provider
@@ -43,7 +43,6 @@ class ClaudeCodeProvider(Provider):
     safe_judge_tools = ("Read", "Glob", "Grep")
     skills_rel_path: ClassVar[str] = ".claude/skills"
     task_config_model: ClassVar[type[BaseModel]] = ClaudeCodeTaskConfig
-    supports_mcp: ClassVar[bool] = True
 
     def task_options(
         self, task_cfg: ClaudeCodeTaskConfig | None, framework_cfg, task_kind: str
@@ -144,9 +143,9 @@ class ClaudeCodeProvider(Provider):
             # doesn't name it auto-rejects its calls, so the tools the task is
             # about never run. `mcp__<server>` covers that server's tool set.
             allowed.extend(
-                f"mcp__{name}"
+                canonical_server_prefix(name)
                 for name in provider_options.get("mcp_server_names") or ()
-                if f"mcp__{name}" not in allowed
+                if canonical_server_prefix(name) not in allowed
             )
             # Claude Code's `--allowed-tools` takes a variadic <tools...>;
             # joining with commas keeps it a single argv entry so any

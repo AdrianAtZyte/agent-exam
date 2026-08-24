@@ -48,12 +48,16 @@ class Provider:
     #: is not an allowlist should override :meth:`judge_agent_options`.
     safe_judge_tools: tuple[str, ...] = ()
 
-    supports_mcp: ClassVar[bool] = False
-    """Whether this harness can attach MCP servers, i.e. whether it
-    overrides :meth:`stage_mcp_config`. Kept as a flag so the preflight
-    can ask without importing the provider registry, which imports every
-    provider, which imports the module the preflight lives in.
-    """
+    @property
+    def supports_mcp(self) -> bool:
+        """Whether this harness can attach MCP servers, i.e. whether it
+        overrides :meth:`stage_mcp_config`. Derived from the override so the
+        preflight can ask without importing the provider registry, which
+        imports every provider, which imports the module the preflight lives
+        in — and without every provider hand-maintaining a flag that could
+        drift from its own override.
+        """
+        return type(self).stage_mcp_config is not Provider.stage_mcp_config
 
     reports_mcp_connections: ClassVar[bool] = True
     """Whether this harness announces per-server MCP connection status at

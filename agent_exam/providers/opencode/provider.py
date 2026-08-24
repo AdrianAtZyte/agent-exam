@@ -77,7 +77,6 @@ class OpenCodeProvider(Provider):
     safe_judge_tools = ("read", "glob", "grep")
     skills_rel_path: ClassVar[str] = ".opencode/skills"
     task_config_model: ClassVar[type[BaseModel]] = OpenCodeTaskConfig
-    supports_mcp: ClassVar[bool] = True
 
     def task_options(
         self, task_cfg: OpenCodeTaskConfig | None, framework_cfg, task_kind: str

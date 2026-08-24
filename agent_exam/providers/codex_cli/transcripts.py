@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ...errors import FrameworkError
+from ...mcp import canonical_tool_server, join_canonical_tool_name
 from ...schemas import (
     Metrics,
     RunResult,
@@ -652,7 +653,10 @@ def _with_namespace(payload: dict) -> dict:
     name = payload.get("name")
     if not isinstance(namespace, str) or not namespace or not isinstance(name, str):
         return payload
-    return {**payload, "name": f"{namespace}__{name}"}
+    server = canonical_tool_server(namespace)
+    if server is None:
+        return payload
+    return {**payload, "name": join_canonical_tool_name(server, name)}
 
 
 def _web_search_tool_call(payload: dict, started_at: float | None) -> ToolCallBlock:

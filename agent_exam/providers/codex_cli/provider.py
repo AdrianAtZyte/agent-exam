@@ -78,7 +78,6 @@ class CodexCliProvider(Provider):
     safe_judge_tools = ("command_execution",)
     omitted_model_label = "Codex CLI default model"
     task_config_model: ClassVar[type[BaseModel]] = CodexCliTaskConfig
-    supports_mcp: ClassVar[bool] = True
     # `codex exec --json`'s event stream has no session-level event for MCP
     # server startup/connection status (only per-call `mcp_tool_call` items
     # once the agent actually invokes one) — see `Provider.reports_mcp_connections`.
@@ -699,10 +698,10 @@ def _bearer_header_var(headers: dict[str, str]) -> str | None:
 def _codex_http_problem(name: str, server: McpHttpServer) -> str | None:
     """What keeps codex_cli from attaching HTTP *server* config as declared.
 
-    Codex speaks streamable HTTP only, not classic SSE. It also sends no
-    header of its own; it authenticates by reading a bearer token out of a
-    named environment variable at launch, so it wants *headers* as written
-    rather than resolved, and any header shape other than a single
+    Codex speaks streamable HTTP only. It also sends no header of its own; it
+    authenticates by reading a bearer token out of a named environment
+    variable at launch, so it wants *headers* as written rather than
+    resolved, and any header shape other than a single
     ``Authorization: Bearer ${VAR}`` has nowhere to go.
     """
     if server.type == "sse":
