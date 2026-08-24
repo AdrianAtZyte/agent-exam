@@ -337,5 +337,8 @@ def main() -> None:
     except AgentExamError as exc:
         click.echo(f"error: {exc}", err=True)
         sys.exit(exc.exit_code)
+    except KeyboardInterrupt:
+        click.echo("interrupted", err=True)
+        sys.exit(130)
     except SystemExit:
         raise

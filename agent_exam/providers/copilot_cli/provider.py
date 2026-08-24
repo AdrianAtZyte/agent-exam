@@ -12,7 +12,7 @@ from ...errors import FrameworkError, ProviderTimeout
 from ...ratelimit import with_retries
 from ..base import Provider
 from ..child_env import build_child_env
-from ..process_utils import terminate_tree
+from ..process_utils import terminate_tree, wait_or_terminate
 from .stream_parser import StreamState, drain_stderr, drain_stream
 from .transcripts import build_run_result
 
@@ -150,11 +150,7 @@ class CopilotCliProvider(Provider):
                 process, state, timeout_seconds
             )
         else:
-            try:
-                process.wait(timeout=timeout_seconds)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                terminate_tree(process)
+            timed_out = wait_or_terminate(process, timeout_seconds)
 
         wall_time = time.time() - started
         t_out.join(timeout=5)
@@ -204,15 +200,19 @@ class CopilotCliProvider(Provider):
         Returns `(killed_on_skill, timed_out)`.
         """
         deadline = time.time() + timeout_seconds
-        while True:
-            if process.poll() is not None:
-                return False, False
-            if state.kill_signal.wait(timeout=0.05):
-                terminate_tree(process, sigterm_timeout=1.0)
-                return True, False
-            if time.time() >= deadline:
-                terminate_tree(process)
-                return False, True
+        try:
+            while True:
+                if process.poll() is not None:
+                    return False, False
+                if state.kill_signal.wait(timeout=0.05):
+                    terminate_tree(process, sigterm_timeout=1.0)
+                    return True, False
+                if time.time() >= deadline:
+                    terminate_tree(process)
+                    return False, True
+        except BaseException:
+            terminate_tree(process, sigterm_timeout=0)
+            raise
 
     def get_global_skills(self) -> list[str]:
         """Discover skills installed globally for Copilot CLI."""
