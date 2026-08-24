@@ -23,7 +23,7 @@ from ...ratelimit import with_retries
 from ...schemas import CheckResult, RunResult
 from ..base import Provider
 from ..child_env import build_child_env
-from ..process_utils import terminate_tree
+from ..process_utils import terminate_tree, wait_or_terminate
 from .hermetic_skills import stage_skills_into
 from .paths import codex_home
 from .stream_parser import (
@@ -189,11 +189,7 @@ class CodexCliProvider(Provider):
                 process, state, timeout_seconds, env=env
             )
         else:
-            try:
-                process.wait(timeout=timeout_seconds)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                terminate_tree(process)
+            timed_out = wait_or_terminate(process, timeout_seconds)
 
         wall_time = time.time() - started
         watchdog_stop.set()
@@ -410,28 +406,34 @@ class CodexCliProvider(Provider):
     ) -> tuple[bool, bool]:
         deadline = time.time() + timeout_seconds
         next_session_poll = 0.0
-        while True:
-            if process.poll() is not None:
-                return False, False
-            if state.kill_signal.wait(timeout=0.05):
-                terminate_tree(process, sigterm_timeout=1.0)
-                return True, False
-            now = time.time()
-            if (
-                state.thread_id
-                and state.detected_skill is None
-                and now >= next_session_poll
-            ):
-                next_session_poll = now + 0.25
-                inv = find_session_explicit_skill_invocation(state.thread_id, env=env)
-                if inv is not None:
-                    state.detected_skill = inv
-                    state.kill_signal.set()
+        try:
+            while True:
+                if process.poll() is not None:
+                    return False, False
+                if state.kill_signal.wait(timeout=0.05):
                     terminate_tree(process, sigterm_timeout=1.0)
                     return True, False
-            if now >= deadline:
-                terminate_tree(process)
-                return False, True
+                now = time.time()
+                if (
+                    state.thread_id
+                    and state.detected_skill is None
+                    and now >= next_session_poll
+                ):
+                    next_session_poll = now + 0.25
+                    inv = find_session_explicit_skill_invocation(
+                        state.thread_id, env=env
+                    )
+                    if inv is not None:
+                        state.detected_skill = inv
+                        state.kill_signal.set()
+                        terminate_tree(process, sigterm_timeout=1.0)
+                        return True, False
+                if now >= deadline:
+                    terminate_tree(process)
+                    return False, True
+        except BaseException:
+            terminate_tree(process, sigterm_timeout=0)
+            raise
 
     def get_global_skills(self) -> list[str]:
         from ..skill_staging import discover_skills

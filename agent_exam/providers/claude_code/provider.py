@@ -17,7 +17,7 @@ from ...ratelimit import with_retries
 from ...schemas import CheckResult, RunResult
 from ..base import Provider
 from ..child_env import build_child_env
-from ..process_utils import terminate_tree
+from ..process_utils import terminate_tree, wait_or_terminate
 from ..skill_staging import check_global_skills_against_staged, discover_skills
 from .blocked_plugins import enabled_blocked_in_settings
 from .doctor_probes import blocked_plugins_in_probe, hermetic_check
@@ -190,11 +190,7 @@ class ClaudeCodeProvider(Provider):
                 process, state, timeout_seconds
             )
         else:
-            try:
-                process.wait(timeout=timeout_seconds)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                _terminate_tree(process)
+            timed_out = wait_or_terminate(process, timeout_seconds)
 
         wall_time = time.time() - started
         t_out.join(timeout=5)
@@ -275,15 +271,19 @@ class ClaudeCodeProvider(Provider):
         Returns `(killed_on_skill, timed_out)`.
         """
         deadline = time.time() + timeout_seconds
-        while True:
-            if process.poll() is not None:
-                return False, False
-            if state.kill_signal.wait(timeout=0.05):
-                _terminate_tree(process)
-                return True, False
-            if time.time() >= deadline:
-                _terminate_tree(process)
-                return False, True
+        try:
+            while True:
+                if process.poll() is not None:
+                    return False, False
+                if state.kill_signal.wait(timeout=0.05):
+                    _terminate_tree(process)
+                    return True, False
+                if time.time() >= deadline:
+                    _terminate_tree(process)
+                    return False, True
+        except BaseException:
+            terminate_tree(process, sigterm_timeout=0)
+            raise
 
     def get_global_skills(self) -> list[str] | None:
         """Run a token-free clean ``claude -p`` probe and return the
