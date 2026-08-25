@@ -23,12 +23,22 @@ if TYPE_CHECKING:
 
 _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
+_PROJECT_ROOT_VAR = "PROJECT_ROOT"
 
-def _expand_env_refs(value: str, where: str) -> str:
-    """Substitute ``${VAR}`` references from the parent environment."""
+
+def _expand_env_refs(value: str, where: str, project_root: Path) -> str:
+    """Substitute ``${VAR}`` references from the parent environment.
+
+    ``${PROJECT_ROOT}`` is a builtin, resolved from *project_root* instead —
+    it takes priority over an OS environment variable of the same name, so a
+    stdio server's ``command``/``args`` can reference this repo's own root
+    without the user having to export anything.
+    """
 
     def replace(match: re.Match) -> str:
         name = match.group(1)
+        if name == _PROJECT_ROOT_VAR:
+            return str(project_root)
         try:
             return os.environ[name]
         except KeyError:
@@ -55,7 +65,9 @@ def resolve_servers(cfg: Config, names: list[str] | None = None) -> dict[str, di
     *names* selects a subset of ``cfg.mcp_servers``; ``None`` selects all of
     them. Raises :py:class:`UsageError` when a referenced environment
     variable is unset, so a missing credential surfaces before the agent
-    runs rather than as a tool failure mid-task.
+    runs rather than as a tool failure mid-task. A stdio server's
+    ``command``/``args`` also get ``${PROJECT_ROOT}`` expanded, the builtin
+    ``${VAR}`` case handled by :py:func:`_expand_env_refs`.
     """
     out: dict[str, dict] = {}
     for name, server in _selected(cfg, names).items():
@@ -64,10 +76,19 @@ def resolve_servers(cfg: Config, names: list[str] | None = None) -> dict[str, di
             # Optional in the MCP JSON everyone copy-pastes, and rejected
             # by some harnesses' own config schemas.
             data.pop("type")
+            data["command"] = _expand_env_refs(
+                data["command"], f"mcp_servers.{name}.command", cfg.project_root
+            )
+            data["args"] = [
+                _expand_env_refs(v, f"mcp_servers.{name}.args[{i}]", cfg.project_root)
+                for i, v in enumerate(data["args"])
+            ]
         for key in ("env", "headers"):
             if key in data:
                 data[key] = {
-                    k: _expand_env_refs(v, f"mcp_servers.{name}.{key}.{k}")
+                    k: _expand_env_refs(
+                        v, f"mcp_servers.{name}.{key}.{k}", cfg.project_root
+                    )
                     for k, v in data[key].items()
                 }
         out[name] = data
@@ -278,11 +299,16 @@ def preflight(
             var
             for server in servers.values()
             for value in (
+                *(
+                    (server.command, *server.args)
+                    if isinstance(server, McpStdioServer)
+                    else ()
+                ),
                 *getattr(server, "env", {}).values(),
                 *getattr(server, "headers", {}).values(),
             )
             for var in _env_refs(value)
-            if var not in os.environ
+            if var != _PROJECT_ROOT_VAR and var not in os.environ
         }
     )
     if missing_vars:

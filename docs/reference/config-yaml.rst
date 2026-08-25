@@ -318,11 +318,14 @@ the standard MCP JSON, so a block copies over from the server's README:
 A remote server needs only its ``url``; ``type`` is ``http`` unless the server
 speaks ``sse``.
 
-``${VAR}`` in an ``env`` or ``headers`` value is substituted from the
-environment agent-exam itself runs in, so credentials stay out of the file. A
-variable that is not set fails the run at its start, before any trial — only
-for the servers that run's tasks attach, so a credential is needed by the runs
-that use it and not by every run.
+``${VAR}`` in a stdio server's ``command`` or ``args``, or in an ``env`` or
+``headers`` value, is substituted from the environment agent-exam itself runs
+in, so credentials stay out of the file. A variable that is not set fails the
+run at its start, before any trial — only for the servers that run's tasks
+attach, so a credential is needed by the runs that use it and not by every
+run. ``${PROJECT_ROOT}`` is a builtin, resolved to this project's own root
+regardless of the environment — useful for a local stdio server that runs a
+module out of this same checkout.
 
 ``codex_cli`` sends no header of its own — it reads a bearer token out of the
 environment at launch — so ``Authorization: "Bearer ${VAR}"`` is the only

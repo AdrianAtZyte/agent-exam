@@ -141,6 +141,96 @@ def test_resolve_reports_a_missing_variable(tmp_path, monkeypatch):
         resolve_servers(cfg)
 
 
+def test_resolve_expands_project_root_in_stdio_command_and_args(tmp_path):
+    root = _project(
+        tmp_path,
+        """\
+        default_harness: dummy
+        mcp_servers:
+          files:
+            command: "${PROJECT_ROOT}/bin/mcp-files"
+            args: ["--root", "${PROJECT_ROOT}"]
+        """,
+    )
+    cfg = load_config(root)
+
+    resolved = resolve_servers(cfg)
+
+    assert resolved["files"]["command"] == f"{root}/bin/mcp-files"
+    assert resolved["files"]["args"] == ["--root", str(root)]
+
+
+def test_resolve_reports_a_missing_variable_in_stdio_command(tmp_path):
+    root = _project(
+        tmp_path,
+        """\
+        default_harness: dummy
+        mcp_servers:
+          files:
+            command: "${MCP_FILES_BIN}"
+        """,
+    )
+    cfg = load_config(root)
+
+    with pytest.raises(UsageError, match=r"MCP_FILES_BIN"):
+        resolve_servers(cfg)
+
+
+def test_resolve_reports_a_missing_variable_in_stdio_args(tmp_path):
+    root = _project(
+        tmp_path,
+        """\
+        default_harness: dummy
+        mcp_servers:
+          files:
+            command: mcp-files
+            args: ["--token", "${MCP_FILES_ARG}"]
+        """,
+    )
+    cfg = load_config(root)
+
+    with pytest.raises(UsageError, match=r"MCP_FILES_ARG"):
+        resolve_servers(cfg)
+
+
+def test_preflight_does_not_treat_project_root_as_a_missing_variable(tmp_path):
+    root = _project(
+        tmp_path,
+        """\
+        default_harness: dummy
+        mcp_servers:
+          files:
+            command: sh
+            args: ["-c", "echo ${PROJECT_ROOT}"]
+        """,
+    )
+    cfg = load_config(root)
+
+    results = preflight(cfg, get_provider("claude_code"))
+
+    assert [r.status for r in results] == ["OK"]
+
+
+def test_preflight_reports_a_missing_variable_in_stdio_args(tmp_path):
+    root = _project(
+        tmp_path,
+        """\
+        default_harness: dummy
+        mcp_servers:
+          files:
+            command: sh
+            args: ["-c", "echo ${MCP_FILES_ARG}"]
+        """,
+    )
+    cfg = load_config(root)
+
+    results = preflight(cfg, get_provider("claude_code"))
+
+    by_name = {r.name: r for r in results}
+    assert by_name["mcp server environment"].status == "FAIL"
+    assert "MCP_FILES_ARG" in by_name["mcp server environment"].hint
+
+
 def test_preflight_reports_missing_command_and_variable(tmp_path, monkeypatch):
     monkeypatch.delenv("MCP_TOKEN", raising=False)
     cfg = load_config(_project(tmp_path, _CONFIG))
