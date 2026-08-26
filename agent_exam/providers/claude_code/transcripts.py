@@ -404,7 +404,7 @@ def load_run_result(
     """Parse a transcript on disk into a RunResult (trajectory + metrics).
 
     `stream_detected_skill` is provided when the run was cut short by
-    `stop_on_first_skill`: the transcript may lack the triggering tool_use
+    `stop_on_first_trigger`: the transcript may lack the triggering tool_use
     (we killed before the tool ran) so the provider hands us what it
     observed on the stream. We append it to the last assistant turn's
     skill_invocations if the retrospective walk didn't already pick it up.

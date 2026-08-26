@@ -316,7 +316,7 @@ def _execute_attempt(
                 model=model,
                 cwd=runtime_cwd,
                 provider_options=provider_options,
-                stop_on_first_skill=task.stop_on_first_skill,
+                stop_on_first_trigger=task.stop_on_first_trigger,
                 timeout_seconds=timeout,
             )
         finally:

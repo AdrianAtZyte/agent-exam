@@ -93,7 +93,7 @@ class Task:
     raw: dict
     source_path: Path
     # Trigger-kind fields. Default values keep execute tasks unchanged.
-    stop_on_first_skill: bool = False
+    stop_on_first_trigger: bool = False
     target_skill: str | None = None
     # Set instead of `target_skill` when the trigger is about a tool — an
     # MCP one, typically — rather than a skill.
@@ -395,7 +395,7 @@ def _tasks_from_trigger(
             concurrency_group=m.concurrency_group,
             raw=raw,
             source_path=path,
-            stop_on_first_skill=True,
+            stop_on_first_trigger=True,
             target_skill=m.skill,
             target_tool=m.tool,
             should_trigger=should_trigger,

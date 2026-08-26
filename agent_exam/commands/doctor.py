@@ -279,7 +279,7 @@ def _round_trip_check(cfg: Config, provider_name: str) -> list[CheckResult]:
                 model=model,
                 cwd=cwd,
                 provider_options=probe_options,
-                stop_on_first_skill=False,
+                stop_on_first_trigger=False,
                 timeout_seconds=60,
             )
         except Exception as exc:

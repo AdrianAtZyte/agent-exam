@@ -153,7 +153,7 @@ def _build_trajectory(events: list[dict], user_prompt: str | None = None) -> lis
                     turns.append(built)
                 current_assistant = None
 
-    # Flush any in-progress turn (e.g. killed early by stop_on_first_skill).
+    # Flush any in-progress turn (e.g. killed early by stop_on_first_trigger).
     if current_assistant is not None:
         built = current_assistant.build()
         if built is not None:
@@ -260,7 +260,7 @@ class _AssistantTurnBuilder:
             content.append(TextBlock(text="".join(self._text_parts)))
         content.extend(self._tool_calls)
         # Include tool calls that were requested but never completed (e.g.
-        # the process was killed by stop_on_first_skill before execution_complete).
+        # the process was killed by stop_on_first_trigger before execution_complete).
         for call_id, meta in self._pending.items():
             content.append(
                 ToolCallBlock(

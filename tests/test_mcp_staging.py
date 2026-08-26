@@ -164,7 +164,7 @@ def _capture_cmd(provider, provider_options, cwd=Path("/tmp")):
             model="",
             cwd=cwd,
             provider_options=provider_options,
-            stop_on_first_skill=False,
+            stop_on_first_trigger=False,
             timeout_seconds=30,
         )
     return captured

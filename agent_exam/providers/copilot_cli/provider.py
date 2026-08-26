@@ -54,7 +54,7 @@ class CopilotCliProvider(Provider):
         model: str,
         cwd: Path,
         provider_options: dict,
-        stop_on_first_skill: bool,
+        stop_on_first_trigger: bool,
         timeout_seconds: int,
     ) -> RunResult:
         """Invoke with transparent rate-limit retry.
@@ -69,7 +69,7 @@ class CopilotCliProvider(Provider):
                 model,
                 cwd,
                 provider_options,
-                stop_on_first_skill,
+                stop_on_first_trigger,
                 timeout_seconds,
             )
         )
@@ -80,7 +80,7 @@ class CopilotCliProvider(Provider):
         model: str,
         cwd: Path,
         provider_options: dict,
-        stop_on_first_skill: bool,
+        stop_on_first_trigger: bool,
         timeout_seconds: int,
     ) -> RunResult:
         cmd = ["copilot", "-p", prompt, "--output-format", "json"]
@@ -155,7 +155,7 @@ class CopilotCliProvider(Provider):
         )
 
         state = StreamState(provider=self)
-        if stop_on_first_skill:
+        if stop_on_first_trigger:
             state.skill_detection_enabled = True
             state.target_skill = provider_options.get("target_skill")
             state.target_tool = provider_options.get("target_tool")
@@ -172,7 +172,7 @@ class CopilotCliProvider(Provider):
 
         timed_out = False
         killed_on_skill = False
-        if stop_on_first_skill:
+        if stop_on_first_trigger:
             killed_on_skill, timed_out = self._wait_with_skill_kill(
                 process, state, timeout_seconds
             )

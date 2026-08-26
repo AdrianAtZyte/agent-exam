@@ -33,7 +33,7 @@ negative:
     )
     tasks = load_task(path, suite="scrape-codegen")
     assert len(tasks) == 4
-    assert all(t.kind == "trigger" and t.stop_on_first_skill for t in tasks)
+    assert all(t.kind == "trigger" and t.stop_on_first_trigger for t in tasks)
     # Positives first, negatives second (deterministic).
     assert [t.should_trigger for t in tasks] == [True, True, False, False]
     assert tasks[0].assertions[0].type == "first_skill"

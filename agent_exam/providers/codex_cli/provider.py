@@ -115,7 +115,7 @@ class CodexCliProvider(Provider):
         model: str,
         cwd: Path,
         provider_options: dict,
-        stop_on_first_skill: bool,
+        stop_on_first_trigger: bool,
         timeout_seconds: int,
     ) -> RunResult:
         return with_retries(
@@ -124,7 +124,7 @@ class CodexCliProvider(Provider):
                 model,
                 cwd,
                 provider_options,
-                stop_on_first_skill,
+                stop_on_first_trigger,
                 timeout_seconds,
             )
         )
@@ -135,7 +135,7 @@ class CodexCliProvider(Provider):
         model: str,
         cwd: Path,
         provider_options: dict,
-        stop_on_first_skill: bool,
+        stop_on_first_trigger: bool,
         timeout_seconds: int,
     ) -> RunResult:
         provider_options = self._prepare_prefix_rules(cwd, provider_options)
@@ -168,7 +168,7 @@ class CodexCliProvider(Provider):
         watchdog_stop = _start_orphan_watchdog(process)
 
         state = StreamState()
-        if stop_on_first_skill:
+        if stop_on_first_trigger:
             state.skill_detection_enabled = True
             state.target_tool = provider_options.get("target_tool")
             state.negative_trigger_mode = bool(provider_options.get("negative_trigger"))
@@ -184,7 +184,7 @@ class CodexCliProvider(Provider):
 
         timed_out = False
         killed_on_skill = False
-        if stop_on_first_skill:
+        if stop_on_first_trigger:
             killed_on_skill, timed_out = self._wait_with_skill_kill(
                 process, state, timeout_seconds, env=env
             )
