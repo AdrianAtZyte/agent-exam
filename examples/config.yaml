@@ -78,6 +78,18 @@ mcp_servers:
     url: https://tickets.example.com/mcp
     headers:
       Authorization: "Bearer ${TICKETS_TOKEN}"
+  # `oauth` runs a client credentials grant and exports the access token
+  # into `env_var`, for a server whose token isn't pre-obtained.
+  reports:
+    type: http
+    url: https://reports.example.com/mcp
+    oauth:
+      token_url: https://auth.example.com/oauth/token
+      client_id: "${REPORTS_CLIENT_ID}"
+      client_secret: "${REPORTS_CLIENT_SECRET}"
+      env_var: REPORTS_TOKEN
+    headers:
+      Authorization: "Bearer ${REPORTS_TOKEN}"
 
 judge:
   timeout_seconds: 60

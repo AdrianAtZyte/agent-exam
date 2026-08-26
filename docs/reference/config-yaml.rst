@@ -332,6 +332,28 @@ environment at launch — so ``Authorization: "Bearer ${VAR}"`` is the only
 header it can carry, and a server needing any other has to be scoped away from
 it with ``providers:``.
 
+A server whose token comes from an OAuth 2.0 client credentials grant runs it
+via ``oauth`` instead of a pre-obtained token in ``env``/``headers``:
+
+.. code-block:: yaml
+
+    mcp_servers:
+      tickets:
+        type: http
+        url: https://tickets.example.com/mcp
+        oauth:
+          token_url: https://auth.example.com/oauth/token
+          client_id: "${TICKETS_CLIENT_ID}"
+          client_secret: "${TICKETS_CLIENT_SECRET}"
+          env_var: TICKETS_TOKEN
+        headers:
+          Authorization: "Bearer ${TICKETS_TOKEN}"
+
+The grant runs once per run, before the server it belongs to is resolved, and
+the access token it returns is exported into ``env_var`` — the server's own
+``env``/``headers`` then reference it with ``${VAR}`` like a token obtained
+any other way. ``scope`` is optional.
+
 Tasks attach every configured server unless they name a subset with their own
 ``mcp_servers:`` — see :doc:`task-yaml`. Definitions belong here rather than in
 a task file because reports serialize task files verbatim.

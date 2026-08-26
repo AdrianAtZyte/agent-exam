@@ -4,6 +4,9 @@ expansion, and the checks that refuse a run the servers cannot serve.
 
 from __future__ import annotations
 
+import json
+import os
+import urllib.error
 from textwrap import dedent
 from typing import TYPE_CHECKING
 
@@ -407,3 +410,109 @@ def test_preflight_rejects_a_codex_sse_server_before_the_run(tmp_path, monkeypat
     by_name = {r.name: r for r in results}
     assert by_name["mcp server configuration"].status == "FAIL"
     assert "sse" in by_name["mcp server configuration"].hint
+
+
+_OAUTH_CONFIG = """\
+default_harness: dummy
+mcp_servers:
+  reports:
+    type: http
+    url: https://reports.example.test/mcp
+    oauth:
+      token_url: https://auth.example.test/token
+      client_id: "${REPORTS_CLIENT_ID}"
+      client_secret: "${REPORTS_CLIENT_SECRET}"
+      env_var: REPORTS_TOKEN
+    headers:
+      Authorization: "Bearer ${REPORTS_TOKEN}"
+"""
+
+
+class _FakeTokenResponse:
+    def __init__(self, payload: dict):
+        self._body = json.dumps(payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self):
+        return self._body
+
+
+def _fake_urlopen(payload: dict):
+    def urlopen(request, timeout=None):
+        return _FakeTokenResponse(payload)
+
+    return urlopen
+
+
+def test_config_parses_oauth(tmp_path):
+    cfg = load_config(_project(tmp_path, _OAUTH_CONFIG))
+
+    oauth = cfg.mcp_servers["reports"].oauth
+    assert oauth.token_url == "https://auth.example.test/token"
+    assert oauth.env_var == "REPORTS_TOKEN"
+
+
+def test_resolve_fetches_an_oauth_token_and_expands_it(tmp_path, monkeypatch):
+    monkeypatch.setenv("REPORTS_CLIENT_ID", "id")
+    monkeypatch.setenv("REPORTS_CLIENT_SECRET", "secret")
+    monkeypatch.delenv("REPORTS_TOKEN", raising=False)
+    monkeypatch.setattr(
+        "urllib.request.urlopen", _fake_urlopen({"access_token": "tok123"})
+    )
+    cfg = load_config(_project(tmp_path, _OAUTH_CONFIG))
+
+    resolved = resolve_servers(cfg)
+
+    assert resolved["reports"]["headers"] == {"Authorization": "Bearer tok123"}
+    assert "oauth" not in resolved["reports"]
+    assert os.environ["REPORTS_TOKEN"] == "tok123"
+
+
+def test_resolve_reports_a_missing_oauth_variable(tmp_path, monkeypatch):
+    monkeypatch.delenv("REPORTS_CLIENT_ID", raising=False)
+    monkeypatch.setenv("REPORTS_CLIENT_SECRET", "secret")
+    cfg = load_config(_project(tmp_path, _OAUTH_CONFIG))
+
+    with pytest.raises(UsageError, match=r"REPORTS_CLIENT_ID"):
+        resolve_servers(cfg)
+
+
+def test_resolve_reports_an_oauth_token_endpoint_failure(tmp_path, monkeypatch):
+    monkeypatch.setenv("REPORTS_CLIENT_ID", "id")
+    monkeypatch.setenv("REPORTS_CLIENT_SECRET", "secret")
+
+    def urlopen(request, timeout=None):
+        raise urllib.error.URLError("boom")
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    cfg = load_config(_project(tmp_path, _OAUTH_CONFIG))
+
+    with pytest.raises(UsageError, match=r"token request"):
+        resolve_servers(cfg)
+
+
+def test_resolve_reports_an_oauth_response_without_a_token(tmp_path, monkeypatch):
+    monkeypatch.setenv("REPORTS_CLIENT_ID", "id")
+    monkeypatch.setenv("REPORTS_CLIENT_SECRET", "secret")
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen({}))
+    cfg = load_config(_project(tmp_path, _OAUTH_CONFIG))
+
+    with pytest.raises(UsageError, match=r"no access_token"):
+        resolve_servers(cfg)
+
+
+def test_preflight_reports_a_missing_oauth_variable(tmp_path, monkeypatch):
+    monkeypatch.delenv("REPORTS_CLIENT_SECRET", raising=False)
+    monkeypatch.setenv("REPORTS_CLIENT_ID", "id")
+    cfg = load_config(_project(tmp_path, _OAUTH_CONFIG))
+
+    results = preflight(cfg, get_provider("claude_code"))
+
+    by_name = {r.name: r for r in results}
+    assert by_name["mcp server environment"].status == "FAIL"
+    assert "REPORTS_CLIENT_SECRET" in by_name["mcp server environment"].hint

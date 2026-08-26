@@ -4,10 +4,13 @@ import json
 import os
 import re
 import shutil
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from typing import TYPE_CHECKING
 
-from .config import McpStdioServer
+from .config import McpOAuthClientCredentials, McpStdioServer
 from .errors import UsageError
 from .schemas import CheckResult
 from .trajectory_walk import iter_tool_calls
@@ -53,6 +56,48 @@ def _env_refs(value: str) -> list[str]:
     return _ENV_REF.findall(value)
 
 
+def _oauth_ref_values(oauth: McpOAuthClientCredentials) -> tuple[str, ...]:
+    values = (oauth.token_url, oauth.client_id, oauth.client_secret)
+    return (*values, oauth.scope) if oauth.scope else values
+
+
+def _fetch_oauth_token(
+    oauth: McpOAuthClientCredentials, where: str, project_root: Path
+) -> str:
+    """Run *oauth*'s client credentials grant and return the access token."""
+    token_url = _expand_env_refs(oauth.token_url, f"{where}.token_url", project_root)
+    if not token_url.startswith(("http://", "https://")):
+        raise UsageError(f"{where}.token_url: must be an http:// or https:// URL")
+    body = {
+        "grant_type": "client_credentials",
+        "client_id": _expand_env_refs(
+            oauth.client_id, f"{where}.client_id", project_root
+        ),
+        "client_secret": _expand_env_refs(
+            oauth.client_secret, f"{where}.client_secret", project_root
+        ),
+    }
+    if oauth.scope:
+        body["scope"] = _expand_env_refs(oauth.scope, f"{where}.scope", project_root)
+    # Scheme checked above; ruff's S310 still flags Request() itself.
+    request = urllib.request.Request(  # noqa: S310
+        token_url, data=urllib.parse.urlencode(body).encode(), method="POST"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:  # noqa: S310
+            payload = json.loads(response.read())
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise UsageError(
+            f"{where}: token request to {token_url} failed: {exc}"
+        ) from exc
+    token = payload.get("access_token")
+    if not token:
+        raise UsageError(
+            f"{where}: token response from {token_url} has no access_token"
+        )
+    return token
+
+
 def _selected(cfg: Config, names: list[str] | None) -> dict:
     if names is None:
         return dict(cfg.mcp_servers)
@@ -68,10 +113,20 @@ def resolve_servers(cfg: Config, names: list[str] | None = None) -> dict[str, di
     runs rather than as a tool failure mid-task. A stdio server's
     ``command``/``args`` also get ``${PROJECT_ROOT}`` expanded, the builtin
     ``${VAR}`` case handled by :py:func:`_expand_env_refs`.
+
+    A server carrying ``oauth`` runs its client credentials grant here and
+    exports the access token into ``os.environ[oauth.env_var]``, ahead of
+    the server's own ``env``/``headers`` expansion below — so a ``${VAR}``
+    reference to it resolves like any other credential.
     """
     out: dict[str, dict] = {}
     for name, server in _selected(cfg, names).items():
         data = server.model_dump()
+        data.pop("oauth", None)
+        if server.oauth is not None:
+            os.environ[server.oauth.env_var] = _fetch_oauth_token(
+                server.oauth, f"mcp_servers.{name}.oauth", cfg.project_root
+            )
         if isinstance(server, McpStdioServer):
             # Optional in the MCP JSON everyone copy-pastes, and rejected
             # by some harnesses' own config schemas.
@@ -306,6 +361,7 @@ def preflight(
                 ),
                 *getattr(server, "env", {}).values(),
                 *getattr(server, "headers", {}).values(),
+                *(_oauth_ref_values(server.oauth) if server.oauth is not None else ()),
             )
             for var in _env_refs(value)
             if var != _PROJECT_ROOT_VAR and var not in os.environ
