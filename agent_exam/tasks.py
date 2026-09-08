@@ -24,6 +24,7 @@ from ._validate import (
     require_str,
     require_str_list,
 )
+from .assertions._shared import McpToolConfig
 from .errors import UsageError
 from .providers.claude_code.provider import ClaudeCodeTaskConfig
 from .providers.codex_cli.provider import CodexCliTaskConfig
@@ -205,11 +206,11 @@ class _ExecuteTaskModel(_TaskCommonModel):
 class _TriggerTaskModel(_TaskCommonModel):
     kind: Literal["trigger"] = "trigger"
     skill: str | None = None
-    tool: str | None = None
+    mcp_tool: McpToolConfig | None = None
     positive: list[str] = Field(default_factory=list)
     negative: list[str] = Field(default_factory=list)
 
-    @field_validator("skill", "tool")
+    @field_validator("skill")
     @classmethod
     def _non_empty_target(cls, v: str | None) -> str | None:
         if v is not None and not v.strip():
@@ -218,11 +219,13 @@ class _TriggerTaskModel(_TaskCommonModel):
 
     @model_validator(mode="after")
     def _exactly_one_target(self) -> _TriggerTaskModel:
-        if bool(self.skill) == bool(self.tool):
+        if bool(self.skill) == bool(self.mcp_tool):
             raise ValueError(
                 "trigger task must declare exactly one of 'skill: <name>' "
-                "or 'tool: <name>'"
+                "or 'mcp_tool: <name>'"
             )
+        if self.mcp_tool and self.mcp_tool.arguments:
+            raise ValueError("mcp_tool: arguments are not supported on a trigger")
         return self
 
     @field_validator("positive", "negative", mode="before")
@@ -360,9 +363,9 @@ def _tasks_from_trigger(
 
     provider_configs = m._provider_configs()
 
-    if m.tool:
-        target = m.tool
-        synth_types = ("first_tool", "tool_not_called")
+    if m.mcp_tool:
+        target = raw["mcp_tool"]
+        synth_types = ("first_mcp_tool", "mcp_tool_not_called")
     else:
         target = m.skill
         synth_types = ("first_skill", "skill_not_invoked")
@@ -397,7 +400,7 @@ def _tasks_from_trigger(
             source_path=path,
             stop_on_first_trigger=True,
             target_skill=m.skill,
-            target_tool=m.tool,
+            target_tool=m.mcp_tool.target if m.mcp_tool else None,
             should_trigger=should_trigger,
             provider_configs=provider_configs,
             mcp_servers=m.mcp_servers,

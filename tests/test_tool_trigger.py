@@ -8,8 +8,8 @@ from textwrap import dedent
 
 import pytest
 
-from agent_exam.assertions.first_tool import FirstToolConfig
-from agent_exam.assertions.first_tool import check as first_tool
+from agent_exam.assertions.first_mcp_tool import FirstMcpToolConfig
+from agent_exam.assertions.first_mcp_tool import check as first_mcp_tool
 from agent_exam.config import DEFAULT_TASK_TIMEOUT, load_config
 from agent_exam.errors import UsageError
 from agent_exam.providers.claude_code.stream_parser import StreamState, _dispatch
@@ -20,6 +20,7 @@ from agent_exam.tasks import load_task
 from agent_exam.trajectory_walk import record_detected_tool
 
 _TARGET = "mcp__files__search"
+_CONFIG = FirstMcpToolConfig(server="files", tool="search")
 
 
 def _write(tmp_path: Path, body: str) -> Path:
@@ -31,9 +32,9 @@ def _write(tmp_path: Path, body: str) -> Path:
 def test_cases_grade_on_the_tool_instead_of_the_skill(tmp_path):
     path = _write(
         tmp_path,
-        f"""
+        """
         kind: trigger
-        tool: {_TARGET}
+        mcp_tool: {server: files, tool: search}
         positive: [Find the invoice for March.]
         negative: ["What is Python?"]
         """,
@@ -42,18 +43,32 @@ def test_cases_grade_on_the_tool_instead_of_the_skill(tmp_path):
     positive, negative = load_task(path, suite="s")
     assert [t.target_tool for t in (positive, negative)] == [_TARGET, _TARGET]
     assert positive.target_skill is None
-    assert positive.assertions[0].type == "first_tool"
-    assert positive.assertions[0].config == _TARGET
-    assert negative.assertions[0].type == "tool_not_called"
+    assert positive.assertions[0].type == "first_mcp_tool"
+    assert positive.assertions[0].config == {"server": "files", "tool": "search"}
+    assert negative.assertions[0].type == "mcp_tool_not_called"
+
+
+def test_a_bare_tool_name_targets_it_on_any_server(tmp_path):
+    path = _write(tmp_path, "kind: trigger\nmcp_tool: search\npositive: [hi]\n")
+
+    (positive,) = load_task(path, suite="s")
+    assert positive.target_tool == "mcp__*__search"
+    assert positive.assertions[0].config == "search"
+    result = RunResult(
+        trajectory=[Turn(role="assistant", content=[TextBlock(text="on it")])],
+        metrics=Metrics(0.0, Tokens(), 0.0, 0, 0),
+    )
+    record_detected_tool(result.trajectory, "mcp__notes__search")
+    assert first_mcp_tool(positive.assertions[0].parsed_config, result, Path()).pass_
 
 
 def test_a_trigger_targets_a_skill_or_a_tool_but_not_both(tmp_path):
     path = _write(
         tmp_path,
-        f"""
+        """
         kind: trigger
         skill: files
-        tool: {_TARGET}
+        mcp_tool: search
         positive: [hi]
         """,
     )
@@ -111,7 +126,7 @@ def test_a_wrong_tool_before_the_target_is_a_routing_miss():
     record_detected_tool(trajectory, _TARGET)
 
     result = RunResult(trajectory=trajectory, metrics=Metrics(0.0, Tokens(), 0.0, 0, 0))
-    assert not first_tool(FirstToolConfig(name=_TARGET), result, Path()).pass_
+    assert not first_mcp_tool(_CONFIG, result, Path()).pass_
 
 
 def test_native_calls_before_the_target_are_not_a_miss():
@@ -120,7 +135,7 @@ def test_native_calls_before_the_target_are_not_a_miss():
     record_detected_tool(trajectory, _TARGET)
 
     result = RunResult(trajectory=trajectory, metrics=Metrics(0.0, Tokens(), 0.0, 0, 0))
-    assert first_tool(FirstToolConfig(name=_TARGET), result, Path()).pass_
+    assert first_mcp_tool(_CONFIG, result, Path()).pass_
 
 
 def test_a_positive_case_keeps_going_while_the_agent_looks_around():
@@ -155,7 +170,7 @@ def test_the_call_the_kill_landed_on_is_recorded():
     record_detected_tool(trajectory, _TARGET)
 
     result = RunResult(trajectory=trajectory, metrics=Metrics(0.0, Tokens(), 0.0, 0, 0))
-    assert first_tool(FirstToolConfig(name=_TARGET), result, Path()).pass_
+    assert first_mcp_tool(_CONFIG, result, Path()).pass_
     # A second pass over a transcript that already has the call adds nothing.
     record_detected_tool(trajectory, _TARGET)
     assert len(trajectory[0].content) == 2
@@ -173,7 +188,7 @@ def _run_a_tool_trigger(tmp_path, monkeypatch) -> list[dict]:
         "providers:\n  dummy:\n    judge_model: haiku\n"
     )
     (root / "evals" / "suites" / "s" / "tasks" / "t.yaml").write_text(
-        f"kind: trigger\ntool: {_TARGET}\npositive: [hi]\n"
+        "kind: trigger\nmcp_tool: {server: files, tool: search}\npositive: [hi]\n"
     )
 
     calls: list[dict] = []
@@ -219,10 +234,10 @@ def test_a_tool_of_an_undeclared_server_fails_validation(tmp_path):
         "mcp_servers:\n  files:\n    command: sh\n"
     )
     (root / "evals" / "suites" / "s" / "tasks" / "typo.yaml").write_text(
-        "kind: trigger\ntool: mcp__flies__search\npositive: [hi]\n"
+        "kind: trigger\nmcp_tool: {server: flies, tool: search}\npositive: [hi]\n"
     )
-    (root / "evals" / "suites" / "s" / "tasks" / "native.yaml").write_text(
-        "kind: trigger\ntool: Bash\npositive: [hi]\n"
+    (root / "evals" / "suites" / "s" / "tasks" / "anywhere.yaml").write_text(
+        "kind: trigger\nmcp_tool: search\npositive: [hi]\n"
     )
 
     fails = [c for c in validate_suite(load_config(root), "s") if c.status == "FAIL"]
@@ -244,11 +259,11 @@ def test_a_tool_of_a_server_the_task_leaves_out_fails_validation(tmp_path):
         "mcp_servers:\n  files:\n    command: sh\n  tickets:\n    command: sh\n"
     )
     (root / "evals" / "suites" / "s" / "tasks" / "elsewhere.yaml").write_text(
-        "kind: trigger\ntool: mcp__files__search\n"
+        "kind: trigger\nmcp_tool: {server: files, tool: search}\n"
         "mcp_servers: [tickets]\npositive: [hi]\n"
     )
     (root / "evals" / "suites" / "s" / "tasks" / "attached.yaml").write_text(
-        "kind: trigger\ntool: mcp__files__search\n"
+        "kind: trigger\nmcp_tool: {server: files, tool: search}\n"
         "mcp_servers: [files]\npositive: [hi]\n"
     )
 
@@ -259,8 +274,8 @@ def test_a_tool_of_a_server_the_task_leaves_out_fails_validation(tmp_path):
     ]
 
 
-def test_a_tool_target_shaped_like_a_typo_of_a_server_fails_validation(tmp_path):
-    """`files_search` reads as a typo of `mcp__files__search` — left as
+def test_a_tool_name_with_the_server_folded_in_fails_validation(tmp_path):
+    """`files_search` reads as the server folded into the tool name — left as
     written it can never match a canonicalized trajectory."""
     from agent_exam.validation import validate_suite
 
@@ -271,22 +286,25 @@ def test_a_tool_target_shaped_like_a_typo_of_a_server_fails_validation(tmp_path)
         "default_harness: dummy\nskills_dirs: []\nmcp_servers:\n  files:\n    command: sh\n"
     )
     (root / "evals" / "suites" / "s" / "tasks" / "typo.yaml").write_text(
-        "kind: trigger\ntool: files_search\npositive: [hi]\n"
+        "kind: trigger\nmcp_tool: files_search\npositive: [hi]\n"
     )
-    (root / "evals" / "suites" / "s" / "tasks" / "native.yaml").write_text(
-        "kind: trigger\ntool: Bash\npositive: [hi]\n"
+    (root / "evals" / "suites" / "s" / "tasks" / "fine.yaml").write_text(
+        "kind: trigger\nmcp_tool: search\npositive: [hi]\n"
     )
 
     fails = [c for c in validate_suite(load_config(root), "s") if c.status == "FAIL"]
 
     assert [c.hint for c in fails] == [
-        "looks like a non-canonical mcp__<server>__<tool> spelling: files_search"
+        (
+            "server name folded into the tool name, "
+            "spell it as server: and tool: instead: files_search"
+        )
     ]
 
 
 def _graded(result: RunResult) -> bool:
     """Whether the generated positive assertion passes on *result*."""
-    return first_tool(FirstToolConfig(name=_TARGET), result, Path()).pass_
+    return first_mcp_tool(_CONFIG, result, Path()).pass_
 
 
 def test_copilot_negative_case_does_not_settle_on_the_first_message():

@@ -179,6 +179,7 @@ def stage_mcp_json(run_tmp_root: Path, cfg: Config, servers: list[str] | None) -
 
 _CANONICAL_PREFIX = "mcp__"
 _SEPARATORS = ("__", "_", "-")
+_ANY_SERVER = "*"
 
 
 def join_canonical_tool_name(server: str, tool: str) -> str:
@@ -200,12 +201,19 @@ def canonical_server_prefix(server: str) -> str:
     return f"{_CANONICAL_PREFIX}{server}"
 
 
+def split_canonical_tool_name(name: str) -> tuple[str | None, str]:
+    """Split a canonical MCP tool name into its server and tool. The server
+    is `None` for a target that stands for the tool on any server."""
+    server, _, tool = name[len(_CANONICAL_PREFIX) :].partition("__")
+    return (None if server == _ANY_SERVER else server), tool
+
+
 def canonical_tool_server(name: str) -> str | None:
-    """The server *name* belongs to, if it is a canonical MCP tool name."""
+    """The server *name* belongs to, if it is a canonical MCP tool name of
+    one particular server."""
     if not is_mcp_tool(name):
         return None
-    server, _, _ = name[len(_CANONICAL_PREFIX) :].partition("__")
-    return server or None
+    return split_canonical_tool_name(name)[0]
 
 
 def _match_server(bare: str, servers: list[str]) -> tuple[str, str] | None:
@@ -252,6 +260,24 @@ def is_mcp_tool(name: str) -> bool:
     return name.startswith(_CANONICAL_PREFIX)
 
 
+def mcp_tool_target(tool: str, server: str | None) -> str:
+    """Spell the tool a task or assertion targets, in the canonical form
+    calls are compared against. Without *server*, the target stands for
+    *tool* on whichever server serves one.
+    """
+    return join_canonical_tool_name(server or _ANY_SERVER, tool)
+
+
+def is_mcp_tool_target(name: str, target: str) -> bool:
+    """Whether a call to *name* is a call to the tool *target* spells."""
+    if name == target:
+        return True
+    if not is_mcp_tool(name):
+        return False
+    target_server, target_tool = split_canonical_tool_name(target)
+    return target_server is None and split_canonical_tool_name(name)[1] == target_tool
+
+
 def settles_tool_trigger(name: str, target: str, negative: bool) -> bool:
     """Whether a call to *name* settles a trigger aimed at tool *target*.
 
@@ -261,7 +287,7 @@ def settles_tool_trigger(name: str, target: str, negative: bool) -> bool:
     the turn out, since the agent can call one MCP tool and still reach for
     the target afterwards.
     """
-    return name == target or (not negative and is_mcp_tool(name))
+    return is_mcp_tool_target(name, target) or (not negative and is_mcp_tool(name))
 
 
 def canonicalize_tool_names(trajectory: list[Turn], servers: Iterable[str]) -> None:

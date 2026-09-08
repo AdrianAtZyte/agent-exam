@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .errors import AgentExamError, ProviderTimeout, UsageError
-from .mcp import connection_check, is_mcp_tool
+from .mcp import connection_check, is_mcp_tool, is_mcp_tool_target
 from .providers import get_provider
 from .schemas import RunResult
 from .serde import to_json_dict, write_json
@@ -95,7 +95,8 @@ def _target_tool_already_called(task: Task, run_result: RunResult) -> bool:
     decisive pass.
     """
     return task.target_tool is not None and any(
-        call.name == task.target_tool for call in iter_tool_calls(run_result.trajectory)
+        is_mcp_tool_target(call.name, task.target_tool)
+        for call in iter_tool_calls(run_result.trajectory)
     )
 
 

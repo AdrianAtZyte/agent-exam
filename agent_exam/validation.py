@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .errors import UsageError
-from .mcp import canonical_tool_name, canonical_tool_server, is_mcp_tool
+from .mcp import canonical_tool_name, canonical_tool_server, split_canonical_tool_name
 from .schemas import CheckResult
 from .tasks import load_suite, load_suite_config
 
@@ -397,8 +397,8 @@ def validate_suite(
             t.target_tool
             for t in tasks
             if t.target_tool
-            and is_mcp_tool(t.target_tool)
-            and canonical_tool_server(t.target_tool)
+            and (server := canonical_tool_server(t.target_tool)) is not None
+            and server
             not in (cfg.mcp_servers if t.mcp_servers is None else t.mcp_servers)
         }
     )
@@ -413,32 +413,31 @@ def validate_suite(
             )
         )
 
-    # A tool: value that isn't already canonical but starts with a declared
-    # server's name reads as a typo of the mcp__<server>__<tool> spelling
-    # the docs ask for, not a native tool target — left as written it can
-    # never match a canonicalized trajectory, so every positive case would
-    # silently fail and every negative case would silently pass.
-    miscanonical = sorted(
+    # A bare mcp_tool: value that starts with an attached server's name reads
+    # as the server folded into the tool name, the way some harnesses spell a
+    # call; the trajectory is canonicalized before grading, so left as written
+    # it can never match, and every positive case would silently fail while
+    # every negative case silently passed.
+    misspelled = sorted(
         {
-            t.target_tool
+            tool
             for t in tasks
             if t.target_tool
-            and not is_mcp_tool(t.target_tool)
-            and canonical_tool_name(
-                t.target_tool,
-                cfg.mcp_servers if t.mcp_servers is None else t.mcp_servers,
+            and canonical_tool_server(t.target_tool) is None
+            and (tool := split_canonical_tool_name(t.target_tool)[1])
+            != canonical_tool_name(
+                tool, cfg.mcp_servers if t.mcp_servers is None else t.mcp_servers
             )
-            != t.target_tool
         }
     )
-    if miscanonical:
+    if misspelled:
         results.append(
             CheckResult(
-                name=f"{suite}: trigger tool canonical",
+                name=f"{suite}: trigger tool names",
                 status="FAIL",
                 hint=(
-                    "looks like a non-canonical mcp__<server>__<tool> spelling: "
-                    + ", ".join(miscanonical)
+                    "server name folded into the tool name, "
+                    "spell it as server: and tool: instead: " + ", ".join(misspelled)
                 ),
             )
         )

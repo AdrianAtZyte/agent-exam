@@ -372,11 +372,12 @@ result. The statuses land in the attempt's :file:`attempt.json`. ``claude_code``
 nothing, and under it a server that never came up surfaces as the task
 failing.
 
-Assertions grade MCP tool calls through the ordinary ``tool_called``,
-``tool_not_called`` and ``tool_count`` types, naming the tool as
-``mcp__<server>__<tool>`` whichever harness ran, so a server name is limited
-to letters, digits, ``-`` and ``_``, the last of which can neither be doubled
-nor sit at either end.
+Assertions grade MCP tool calls through ``mcp_tool_called``,
+``mcp_tool_not_called`` and ``first_mcp_tool``, naming the tool as the server
+announces it, whichever harness ran. Under the hood every call is spelled
+``mcp__<server>__<tool>``, so a server name is limited to letters, digits,
+``-`` and ``_``, the last of which can neither be doubled nor sit at either
+end.
 
 A full example
 ==============

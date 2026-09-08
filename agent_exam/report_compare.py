@@ -72,7 +72,8 @@ def assertion_key(type_name: str, config: object) -> str:
     Keys chosen so the disambiguating field (path, tool name, etc.) is part
     of the key:
       - file_exists / file_contains → by path
-      - tool_called / tool_not_called / tool_count / first_tool → by tool name
+      - tool_called / tool_not_called / tool_count → by tool name
+      - first_mcp_tool / mcp_tool_called / mcp_tool_not_called → by tool name
       - judge → by first 40 chars of criterion (semantic-hash if collision hurts)
       - everything else → by type alone (one instance per task)
     """
@@ -83,11 +84,19 @@ def assertion_key(type_name: str, config: object) -> str:
     if type_name == "file_contains":
         path = (cfg or {}).get("path", "") if isinstance(cfg, dict) else ""
         return f"{type_name}:{path}"
-    if type_name in ("tool_called", "tool_not_called", "tool_count", "first_tool"):
+    if type_name in ("tool_called", "tool_not_called", "tool_count"):
         if isinstance(cfg, str):
             name = cfg
         elif isinstance(cfg, dict):
             name = cfg.get("name", "")
+        else:
+            name = ""
+        return f"{type_name}:{name}"
+    if type_name in ("first_mcp_tool", "mcp_tool_called", "mcp_tool_not_called"):
+        if isinstance(cfg, str):
+            name = cfg
+        elif isinstance(cfg, dict):
+            name = cfg.get("tool", "")
         else:
             name = ""
         return f"{type_name}:{name}"

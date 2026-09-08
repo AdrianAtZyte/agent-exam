@@ -104,14 +104,14 @@ near-misses that share real domain language.
 Triggering a tool instead of a skill
 ====================================
 
-Swap ``skill:`` for ``tool:`` when the routing decision under test is a tool
-call — an :ref:`MCP server's <mcp-servers>` tool, typically, where the thing
-being evaluated is the tool description rather than a skill of yours.
+Swap ``skill:`` for ``mcp_tool:`` when the routing decision under test is a
+call to an :ref:`MCP server's <mcp-servers>` tool, where the thing being
+evaluated is the tool description rather than a skill of yours.
 
 .. code-block:: yaml
 
     kind: trigger
-    tool: mcp__files__search   # the tool expected to be called (or not)
+    mcp_tool: search   # the tool expected to be called (or not)
 
     positive:
       - Find the invoice we sent in March.
@@ -119,15 +119,16 @@ being evaluated is the tool description rather than a skill of yours.
     negative:
       - What does an invoice number look like?
 
-Cases fan out as before, graded with ``first_tool`` and ``tool_not_called``.
-Positive cases are about which tool the agent picks, so the first MCP call cuts
-the attempt whichever tool it is, and a case that reaches for another server's
-tool first fails — the tool-target counterpart of grading skills on
-``first_skill``. Native tools are ignored throughout: an agent greps and reads
-before deciding, and cutting on that would settle every case before the routing
-decision is observable. For a negative case even an MCP call decides nothing —
-the agent can call one tool and still reach for the target afterwards — so the
-only decisive signal is the turn ending without the call.
+Cases fan out as before, graded with ``first_mcp_tool`` and
+``mcp_tool_not_called``. Positive cases are about which tool the agent picks,
+so the first MCP call cuts the attempt whichever tool it is, and a case that
+reaches for another server's tool first fails — the tool-target counterpart of
+grading skills on ``first_skill``. Native tools are ignored throughout: an
+agent greps and reads before deciding, and cutting on that would settle every
+case before the routing decision is observable. For a negative case even an MCP
+call decides nothing — the agent can call one tool and still reach for the
+target afterwards — so the only decisive signal is the turn ending without the
+call.
 
 Claude Code and Copilot CLI see a call announced before it runs; Codex CLI cuts
 as it starts and OpenCode once it is over, so on those two the tool does run —

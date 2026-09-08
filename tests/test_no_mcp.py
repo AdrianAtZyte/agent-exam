@@ -126,7 +126,7 @@ def _trigger(root: Path, name: str, target: str) -> None:
 
 def test_tool_triggers_are_dropped_and_skill_triggers_stay(tmp_path):
     root = _project(tmp_path)
-    _trigger(root, "tool", "tool: mcp__files__search")
+    _trigger(root, "tool", "mcp_tool: {server: files, tool: search}")
     _trigger(root, "skill", "skill: s")
 
     assert run(load_config(root), _req(no_mcp=True)) == 0
@@ -139,7 +139,7 @@ def test_tool_triggers_are_dropped_and_skill_triggers_stay(tmp_path):
 def test_a_tool_trigger_only_suite_is_refused(tmp_path):
     root = _project(tmp_path)
     (root / "evals" / "suites" / "s" / "tasks" / "t.yaml").unlink()
-    _trigger(root, "tool", "tool: mcp__files__search")
+    _trigger(root, "tool", "mcp_tool: {server: files, tool: search}")
 
     with pytest.raises(UsageError, match="targets an MCP tool"):
         run(load_config(root), _req(no_mcp=True))
