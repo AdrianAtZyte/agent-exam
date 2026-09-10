@@ -16,7 +16,7 @@ import click
 from . import run_modes
 from ._validate import reject_unknown_keys
 from .artifacts import RunPaths
-from .errors import ProviderTimeout, RateLimitExhausted, UsageError
+from .errors import RateLimitExhausted, UsageError
 from .hooks import call_pre_run_hook
 from .ids import new_run_id
 from .judge import JudgeCache, JudgeCall
@@ -501,7 +501,12 @@ def run(cfg: Config, req: RunRequest) -> int:
                 score_t0 = time.monotonic()
                 try:
                     report = _score_outcome(outcome, tasks, context, req.provider)
-                except ProviderTimeout as exc:
+                except RateLimitExhausted:
+                    raise
+                except Exception as exc:
+                    # One attempt failing to score (judge timeout, judge
+                    # process crash) marks that attempt as an error; the rest
+                    # of the run still scores and lands in run.json.
                     task = _lookup_task(tasks, outcome.suite, outcome.task_name)
                     report = score_attempt(
                         task,
@@ -510,7 +515,7 @@ def run(cfg: Config, req: RunRequest) -> int:
                         attempt_cwd=outcome.attempt_cwd,
                         error_verdict="error",
                     )
-                    click.echo(f"scoring error (judge timed out): {exc}", err=True)
+                    click.echo(f"scoring error: {exc!r}", err=True)
                 attempt_reports.append(report)
                 heartbeat.attempt_finished(key)
                 elapsed = _elapsed(attempt_starts, report)

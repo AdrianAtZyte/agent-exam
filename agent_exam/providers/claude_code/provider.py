@@ -94,7 +94,6 @@ class ClaudeCodeProvider(Provider):
         cmd = [
             "claude",
             "-p",
-            prompt,
             "--output-format",
             "stream-json",
             "--verbose",
@@ -142,12 +141,19 @@ class ClaudeCodeProvider(Provider):
         started = time.time()
         process = subprocess.Popen(
             cmd,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=cwd_abs,
             env=env,
             start_new_session=True,
         )
+        # The prompt goes over stdin: a judge prompt embeds the transcript it
+        # scores, which can run past the 32K-character command-line limit on
+        # Windows. Written from a thread since it can exceed the pipe buffer.
+        threading.Thread(
+            target=_feed_stdin, args=(process, prompt), daemon=True
+        ).start()
 
         state = StreamState()
         if stop_on_first_skill:
@@ -447,3 +453,13 @@ def _blocked_plugins_static_check(cfg, context: str = "doctor") -> list[CheckRes
 
 def _terminate_tree(process: subprocess.Popen) -> None:
     terminate_tree(process)
+
+
+def _feed_stdin(process: subprocess.Popen, prompt: str) -> None:
+    try:
+        process.stdin.write(prompt.encode("utf-8"))  # type: ignore[union-attr]
+        process.stdin.close()  # type: ignore[union-attr]
+    except OSError:
+        # The process exited before reading its prompt; the exit code and
+        # stderr tail report that.
+        pass
