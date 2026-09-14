@@ -6,6 +6,20 @@ import signal
 import subprocess
 
 _DEAD_PG = (ProcessLookupError, PermissionError)
+_WINDOWS = os.name == "nt"
+
+
+def _kill_tree(process: subprocess.Popen) -> None:
+    if _WINDOWS:
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return
+    with contextlib.suppress(_DEAD_PG):
+        os.killpg(process.pid, signal.SIGKILL)
 
 
 def terminate_tree(process: subprocess.Popen, sigterm_timeout: float = 5.0) -> None:
@@ -14,23 +28,27 @@ def terminate_tree(process: subprocess.Popen, sigterm_timeout: float = 5.0) -> N
     Sends SIGTERM first, waits up to `sigterm_timeout` seconds, then
     escalates to SIGKILL. Handles races where the process group has
     already exited (ProcessLookupError, PermissionError on macOS).
+    Windows has no process groups or SIGKILL, so the graceful step calls
+    `Popen.terminate()` and the escalation shells out to `taskkill /T /F`
+    to reach the whole tree.
 
     Pass `sigterm_timeout=0` to skip SIGTERM and kill immediately.
     """
     if sigterm_timeout > 0:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except _DEAD_PG:
-            return
+        if _WINDOWS:
+            with contextlib.suppress(OSError):
+                process.terminate()
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except _DEAD_PG:
+                return
         try:
             process.wait(timeout=sigterm_timeout)
             return
         except subprocess.TimeoutExpired:
             pass
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except _DEAD_PG:
-        return
+    _kill_tree(process)
     with contextlib.suppress(subprocess.TimeoutExpired):
         process.wait(timeout=5)
 
