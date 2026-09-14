@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .errors import UsageError
+from .mcp import canonical_tool_name, canonical_tool_server, split_canonical_tool_name
 from .schemas import CheckResult
 from .tasks import load_suite, load_suite_config
 
@@ -363,6 +364,81 @@ def validate_suite(
                 name=f"{suite}: tags declared",
                 status="FAIL",
                 hint=f"not in config.yaml tags: {', '.join(undeclared_tags)}",
+            )
+        )
+
+    # A task can only attach servers config.yaml declares. A typo would
+    # otherwise leave the agent quietly short of the tools the task is
+    # about, which reads as the skill failing.
+    undeclared_servers = sorted(
+        {
+            name
+            for t in tasks
+            for name in (t.mcp_servers or ())
+            if name not in cfg.mcp_servers
+        }
+    )
+    if undeclared_servers:
+        results.append(
+            CheckResult(
+                name=f"{suite}: mcp servers declared",
+                status="FAIL",
+                hint=(
+                    f"not in config.yaml mcp_servers: {', '.join(undeclared_servers)}"
+                ),
+            )
+        )
+
+    # A trigger aimed at a tool of a server the task does not attach can never
+    # fire, so every one of its positive cases would fail as a routing miss. A
+    # task that names no subset attaches everything config.yaml declares.
+    unreachable = sorted(
+        {
+            t.target_tool
+            for t in tasks
+            if t.target_tool
+            and (server := canonical_tool_server(t.target_tool)) is not None
+            and server
+            not in (cfg.mcp_servers if t.mcp_servers is None else t.mcp_servers)
+        }
+    )
+    if unreachable:
+        results.append(
+            CheckResult(
+                name=f"{suite}: trigger tools reachable",
+                status="FAIL",
+                hint=(
+                    "no attached mcp_servers entry serves: " + ", ".join(unreachable)
+                ),
+            )
+        )
+
+    # A bare mcp_tool: value that starts with an attached server's name reads
+    # as the server folded into the tool name, the way some harnesses spell a
+    # call; the trajectory is canonicalized before grading, so left as written
+    # it can never match, and every positive case would silently fail while
+    # every negative case silently passed.
+    misspelled = sorted(
+        {
+            tool
+            for t in tasks
+            if t.target_tool
+            and canonical_tool_server(t.target_tool) is None
+            and (tool := split_canonical_tool_name(t.target_tool)[1])
+            != canonical_tool_name(
+                tool, cfg.mcp_servers if t.mcp_servers is None else t.mcp_servers
+            )
+        }
+    )
+    if misspelled:
+        results.append(
+            CheckResult(
+                name=f"{suite}: trigger tool names",
+                status="FAIL",
+                hint=(
+                    "server name folded into the tool name, "
+                    "spell it as server: and tool: instead: " + ", ".join(misspelled)
+                ),
             )
         )
 

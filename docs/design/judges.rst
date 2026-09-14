@@ -68,6 +68,8 @@ transcript or the working directory.
      - ``file_exists``
    * - A tool was or was not called
      - ``tool_called`` / ``tool_not_called`` / ``tool_count``
+   * - An MCP tool was or was not called, with given arguments
+     - ``mcp_tool_called`` / ``mcp_tool_not_called`` / ``first_mcp_tool``
    * - A skill fired, or did not
      - ``first_skill`` / ``skill_invoked`` / ``skill_not_invoked``
    * - The attempt tripped no permission prompts

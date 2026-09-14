@@ -40,6 +40,11 @@ These appear at the top of any task file.
     Tags this task wears, on top of its suite's. Each must be declared in
     :file:`evals/config.yaml`; see :ref:`tags`.
 
+``mcp_servers``
+    Which of the servers declared in :file:`evals/config.yaml` to attach,
+    by name; see :ref:`mcp-servers`. Absent attaches all of them, ``[]``
+    attaches none, and a name that is not declared fails validation.
+
 ``timeout_seconds``
     Per-attempt wall-clock timeout, overriding
     ``default_task_timeout_seconds``.
@@ -66,15 +71,20 @@ Execute-task fields
 Trigger-task fields
 ===================
 
-``skill`` (required)
+``skill``
     The skill expected to fire, or expected not to, depending on which list the
     case appears in.
 
+``mcp_tool``
+    An MCP tool expected to be called, or expected not to be, instead of a
+    skill: a bare tool name, or a mapping with ``server`` and ``tool`` as in
+    ``first_mcp_tool``. Exactly one of ``skill`` and ``mcp_tool`` is required.
+
 ``positive``
-    User prompts that should fire ``skill``.
+    User prompts that should fire the target.
 
 ``negative``
-    User prompts that should not fire ``skill``.
+    User prompts that should not fire it.
 
 At least one of ``positive`` and ``negative`` must be non-empty. Each entry is
 a plain prompt string; per-case structural overrides are not supported, though
@@ -82,7 +92,8 @@ a file-level ``setup.fixture:`` applies to every case.
 
 ``assertions`` is not used on trigger tasks — the framework generates the
 appropriate assertion per case, ``first_skill`` for positives and
-``skill_not_invoked`` for negatives.
+``skill_not_invoked`` for negatives, or ``first_mcp_tool`` and
+``mcp_tool_not_called`` for an ``mcp_tool`` target.
 
 .. _assertion-meta-fields:
 
@@ -225,7 +236,8 @@ including in subagents.
 
 ``name``
     Tool name. These are harness-specific, so usually pair this with
-    ``providers:``.
+    ``providers:``. For a tool served by an MCP server, use
+    ``mcp_tool_called`` instead.
 
 ``tool_not_called``
 -------------------
@@ -276,6 +288,83 @@ name. This is what trigger evals generate for their positive cases.
 
 ``skill``
     Expected skill name.
+
+``first_mcp_tool``
+------------------
+
+Asserts that the given tool is the first MCP tool the agent reached for. Native
+tools are ignored — an agent greps and reads before deciding which tool the
+request calls for — so this fails only when it called some other MCP tool
+first, or none at all. This is what trigger evals with an ``mcp_tool`` target
+generate for their positive cases.
+
+.. code-block:: yaml
+
+    - first_mcp_tool: search
+    # or:
+    - first_mcp_tool:
+        server: files
+        tool: search
+
+``tool`` (required)
+    Tool name, as the MCP server announces it.
+
+``server``
+    The ``mcp_servers`` entry serving the tool. Without it, the tool counts on
+    whichever server serves one.
+
+``arguments``
+    Arguments the call must have been made with, as in ``mcp_tool_called``.
+
+``mcp_tool_called``
+-------------------
+
+Asserts that an MCP tool was called at least once, anywhere in the trajectory,
+including in subagents, and optionally with which arguments. With
+``arguments``, at least one call must match every entry.
+
+.. code-block:: yaml
+
+    - mcp_tool_called: extract_from_user_html
+    # or:
+    - mcp_tool_called:
+        server: zyte
+        tool: extract_from_user_html
+        arguments:
+          type: product
+          userHtml: {equals_file: book.html}
+          url: {matches: '^https://example\.com/'}
+
+``tool`` (required), ``server``
+    As in ``first_mcp_tool``.
+
+``arguments``
+    Top-level keys of the tool call input, each mapped to the expected value.
+    A scalar is the value the argument must equal; strings are compared with
+    leading and trailing whitespace ignored. A mapping is one of:
+
+    ``equals_file``
+        Path, relative to the attempt's working directory, of a file whose
+        contents the argument must equal. Useful when a fixture hands the
+        agent a large document that it must pass through verbatim.
+
+    ``matches``
+        Regular expression searched for in the argument.
+
+``mcp_tool_not_called``
+-----------------------
+
+The inverse of ``mcp_tool_called``, with the same config shape. With
+``arguments``, only calls matching every entry count, so it can forbid a tool
+being called one particular way.
+
+.. code-block:: yaml
+
+    - mcp_tool_not_called: fetch
+    - mcp_tool_not_called:
+        tool: fetch
+        arguments:
+          url: {matches: '^http://'}
 
 ``skill_not_invoked``
 ---------------------
@@ -459,8 +548,8 @@ Normalized tool names:
 ``image_generation``
     Codex's image tool. The base64 result is elided.
 
-Custom and freeform tools, and MCP-server tools, keep their own names.
-``spawn_agent`` and ``wait`` cover subagent spawning and waiting.
+Custom and freeform tools keep their own names. ``spawn_agent`` and ``wait``
+cover subagent spawning and waiting.
 
 ``copilot_cli``
 ---------------

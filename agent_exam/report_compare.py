@@ -73,6 +73,7 @@ def assertion_key(type_name: str, config: object) -> str:
     of the key:
       - file_exists / file_contains → by path
       - tool_called / tool_not_called / tool_count → by tool name
+      - first_mcp_tool / mcp_tool_called / mcp_tool_not_called → by tool name
       - judge → by first 40 chars of criterion (semantic-hash if collision hurts)
       - everything else → by type alone (one instance per task)
     """
@@ -88,6 +89,14 @@ def assertion_key(type_name: str, config: object) -> str:
             name = cfg
         elif isinstance(cfg, dict):
             name = cfg.get("name", "")
+        else:
+            name = ""
+        return f"{type_name}:{name}"
+    if type_name in ("first_mcp_tool", "mcp_tool_called", "mcp_tool_not_called"):
+        if isinstance(cfg, str):
+            name = cfg
+        elif isinstance(cfg, dict):
+            name = cfg.get("tool", "")
         else:
             name = ""
         return f"{type_name}:{name}"
