@@ -46,7 +46,7 @@ def test_prompt_is_fed_over_stdin_not_argv():
             model="",
             cwd=Path("/tmp"),
             provider_options={},
-            stop_on_first_skill=False,
+            stop_on_first_trigger=False,
             timeout_seconds=30,
         )
     assert prompt not in captured["cmd"]
