@@ -4,9 +4,14 @@ expansion, and the checks that refuse a run the servers cannot serve.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import http.client
 import json
 import os
+import threading
 import urllib.error
+import urllib.parse
 from textwrap import dedent
 from typing import TYPE_CHECKING
 
@@ -15,6 +20,7 @@ import pytest
 from agent_exam.config import McpHttpServer, McpStdioServer, load_config
 from agent_exam.errors import UsageError
 from agent_exam.mcp import preflight, resolve_servers
+from agent_exam.oauth import login
 from agent_exam.providers import get_provider
 from agent_exam.tasks import load_task
 from agent_exam.validation import validate_suite
@@ -492,7 +498,7 @@ def test_resolve_reports_an_oauth_token_endpoint_failure(tmp_path, monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", urlopen)
     cfg = load_config(_project(tmp_path, _OAUTH_CONFIG))
 
-    with pytest.raises(UsageError, match=r"token request"):
+    with pytest.raises(UsageError, match=r"request to"):
         resolve_servers(cfg)
 
 
@@ -516,3 +522,206 @@ def test_preflight_reports_a_missing_oauth_variable(tmp_path, monkeypatch):
     by_name = {r.name: r for r in results}
     assert by_name["mcp server environment"].status == "FAIL"
     assert "REPORTS_CLIENT_SECRET" in by_name["mcp server environment"].hint
+    assert "REPORTS_TOKEN" not in by_name["mcp server environment"].hint
+
+
+def test_preflight_passes_with_the_oauth_token_not_yet_exported(tmp_path, monkeypatch):
+    monkeypatch.setenv("REPORTS_CLIENT_ID", "id")
+    monkeypatch.setenv("REPORTS_CLIENT_SECRET", "secret")
+    monkeypatch.delenv("REPORTS_TOKEN", raising=False)
+    cfg = load_config(_project(tmp_path, _OAUTH_CONFIG))
+
+    results = preflight(cfg, get_provider("claude_code"))
+
+    by_name = {r.name: r for r in results}
+    assert "mcp server environment" not in by_name
+    assert by_name["mcp servers"].status == "OK"
+
+
+_LOGIN_CONFIG = """\
+default_harness: dummy
+mcp_servers:
+  reports:
+    url: https://reports.example.test/mcp
+    oauth:
+      env_var: REPORTS_TOKEN
+    headers:
+      Authorization: "Bearer ${REPORTS_TOKEN}"
+"""
+
+
+def _store_login(monkeypatch, tmp_path, entry: dict | None) -> Path:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    path = tmp_path / "xdg" / "agent-exam" / "mcp-oauth.json"
+    if entry is not None:
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"https://reports.example.test/mcp": entry}))
+    return path
+
+
+def test_config_rejects_a_client_secret_without_its_client(tmp_path):
+    config = _OAUTH_CONFIG.replace('      client_id: "${REPORTS_CLIENT_ID}"\n', "")
+
+    with pytest.raises(
+        UsageError, match=r"client_secret needs token_url and client_id"
+    ):
+        load_config(_project(tmp_path, config))
+
+
+def test_config_rejects_a_token_url_without_a_client_secret(tmp_path):
+    config = _LOGIN_CONFIG.replace(
+        "      env_var:",
+        "      token_url: https://auth.example.test/token\n      env_var:",
+    )
+
+    with pytest.raises(UsageError, match=r"token_url is discovered"):
+        load_config(_project(tmp_path, config))
+
+
+def test_config_rejects_a_login_on_a_stdio_server(tmp_path):
+    config = _LOGIN_CONFIG.replace(
+        "    url: https://reports.example.test/mcp", "    command: mcp-reports"
+    ).replace("headers:", "env:")
+
+    with pytest.raises(UsageError, match=r"no URL to log in to"):
+        load_config(_project(tmp_path, config))
+
+
+def test_resolve_refreshes_a_stored_login(tmp_path, monkeypatch):
+    path = _store_login(
+        monkeypatch,
+        tmp_path,
+        {
+            "token_endpoint": "https://auth.example.test/token",
+            "client_id": "dyn",
+            "refresh_token": "ref1",
+        },
+    )
+    monkeypatch.delenv("REPORTS_TOKEN", raising=False)
+    seen = {}
+
+    def urlopen(request, timeout=None):
+        seen["url"] = request.full_url
+        seen["body"] = dict(urllib.parse.parse_qsl(request.data.decode()))
+        return _FakeTokenResponse({"access_token": "tok", "refresh_token": "ref2"})
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    cfg = load_config(_project(tmp_path, _LOGIN_CONFIG))
+
+    resolved = resolve_servers(cfg)
+
+    assert resolved["reports"]["headers"] == {"Authorization": "Bearer tok"}
+    assert seen["url"] == "https://auth.example.test/token"
+    assert seen["body"] == {
+        "grant_type": "refresh_token",
+        "refresh_token": "ref1",
+        "client_id": "dyn",
+        "resource": "https://reports.example.test/mcp",
+    }
+    stored = json.loads(path.read_text())["https://reports.example.test/mcp"]
+    assert stored["refresh_token"] == "ref2"
+
+
+def test_resolve_reports_a_missing_login(tmp_path, monkeypatch):
+    _store_login(monkeypatch, tmp_path, None)
+    cfg = load_config(_project(tmp_path, _LOGIN_CONFIG))
+
+    with pytest.raises(UsageError, match=r"agent-exam mcp login reports"):
+        resolve_servers(cfg)
+
+
+def test_preflight_reports_a_missing_login(tmp_path, monkeypatch):
+    _store_login(monkeypatch, tmp_path, None)
+    cfg = load_config(_project(tmp_path, _LOGIN_CONFIG))
+
+    results = preflight(cfg, get_provider("claude_code"))
+
+    by_name = {r.name: r for r in results}
+    assert by_name["mcp server logins"].status == "FAIL"
+    assert "agent-exam mcp login reports" in by_name["mcp server logins"].hint
+    assert "mcp servers" not in by_name
+
+
+def test_preflight_passes_with_a_stored_login(tmp_path, monkeypatch):
+    _store_login(monkeypatch, tmp_path, {"refresh_token": "ref"})
+    cfg = load_config(_project(tmp_path, _LOGIN_CONFIG))
+
+    results = preflight(cfg, get_provider("claude_code"))
+
+    by_name = {r.name: r for r in results}
+    assert "mcp server logins" not in by_name
+    assert by_name["mcp servers"].status == "OK"
+
+
+def test_login_registers_a_client_and_stores_the_refresh_token(tmp_path, monkeypatch):
+    path = _store_login(monkeypatch, tmp_path, None)
+    cfg = load_config(_project(tmp_path, _LOGIN_CONFIG))
+    seen = {}
+
+    def urlopen(request, timeout=None):
+        url = request if isinstance(request, str) else request.full_url
+        if (
+            url
+            == "https://reports.example.test/.well-known/oauth-protected-resource/mcp"
+        ):
+            return _FakeTokenResponse(
+                {
+                    "authorization_servers": ["https://auth.example.test/tenant"],
+                    "scopes_supported": ["reports:read"],
+                }
+            )
+        if (
+            url
+            == "https://auth.example.test/.well-known/oauth-authorization-server/tenant"
+        ):
+            return _FakeTokenResponse(
+                {
+                    "authorization_endpoint": "https://auth.example.test/authorize",
+                    "token_endpoint": "https://auth.example.test/token",
+                    "registration_endpoint": "https://auth.example.test/register",
+                }
+            )
+        if url == "https://auth.example.test/register":
+            seen["registration"] = json.loads(request.data)
+            return _FakeTokenResponse({"client_id": "dyn"})
+        if url == "https://auth.example.test/token":
+            seen["token"] = dict(urllib.parse.parse_qsl(request.data.decode()))
+            return _FakeTokenResponse({"access_token": "acc", "refresh_token": "ref"})
+        raise urllib.error.URLError(f"unexpected {url}")
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+
+    def open_url(url):
+        endpoint, _, query = url.partition("?")
+        seen["authorize_endpoint"] = endpoint
+        params = seen["authorize"] = dict(urllib.parse.parse_qsl(query))
+        redirect = urllib.parse.urlsplit(params["redirect_uri"])
+
+        def visit():
+            conn = http.client.HTTPConnection(
+                redirect.hostname, redirect.port, timeout=5
+            )
+            conn.request("GET", f"/callback?code=the-code&state={params['state']}")
+            conn.getresponse().read()
+
+        threading.Thread(target=visit).start()
+
+    login(cfg, "reports", open_url=open_url, timeout=10)
+
+    assert seen["authorize_endpoint"] == "https://auth.example.test/authorize"
+    assert seen["registration"]["redirect_uris"] == [seen["authorize"]["redirect_uri"]]
+    assert seen["registration"]["scope"] == "reports:read"
+    assert seen["authorize"]["scope"] == "reports:read"
+    assert seen["authorize"]["resource"] == "https://reports.example.test/mcp"
+    digest = hashlib.sha256(seen["token"]["code_verifier"].encode()).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    assert seen["authorize"]["code_challenge"] == challenge
+    assert seen["token"]["grant_type"] == "authorization_code"
+    assert seen["token"]["code"] == "the-code"
+    assert seen["token"]["client_id"] == "dyn"
+    stored = json.loads(path.read_text())["https://reports.example.test/mcp"]
+    assert stored == {
+        "token_endpoint": "https://auth.example.test/token",
+        "client_id": "dyn",
+        "refresh_token": "ref",
+    }

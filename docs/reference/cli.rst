@@ -196,6 +196,21 @@ What replay costs:
 
 Rescoring works on reality-check runs too.
 
+``mcp login`` — log in to an MCP server
+=======================================
+
+.. code-block:: bash
+
+    agent-exam mcp login <server>
+
+Runs the browser login of the server named under ``mcp_servers`` in
+:file:`evals/config.yaml` and stores the resulting login in
+:file:`~/.config/agent-exam/mcp-oauth.json`, keyed by server URL, for runs to
+refresh unattended. The command prints the login URL and opens it in the
+browser; the authorization server sends the browser back to a listener on
+``localhost``, and the command waits up to five minutes for that. See
+:ref:`mcp-servers` for the ``oauth`` block that selects this flow.
+
 ``doctor`` — preflight checks
 =============================
 

@@ -12,9 +12,20 @@ from .commands import runs as runs_cmd_impl
 from .commands import show as show_cmd_impl
 from .config import load_config
 from .errors import AgentExamError
+from .oauth import login as mcp_login
 from .runner import RunRequest, run
 
-RESERVED_VERBS = {"run", "runs", "show", "history", "diff", "rescore", "doctor", "ui"}
+RESERVED_VERBS = {
+    "run",
+    "runs",
+    "show",
+    "history",
+    "diff",
+    "rescore",
+    "doctor",
+    "mcp",
+    "ui",
+}
 
 
 def _parse_suite_spec(spec: str) -> tuple[str, str | None]:
@@ -193,6 +204,23 @@ def diff_cmd(
 def rescore_cmd(scope: str) -> None:
     cfg = load_config()
     sys.exit(rescore_cmd_impl.run(cfg.evals_dir, scope))
+
+
+@cli.group("mcp", help="MCP server helpers.")
+def mcp_group() -> None:
+    pass
+
+
+@mcp_group.command(
+    "login",
+    help=(
+        "Log in to an OAuth-protected MCP server in the browser and store the "
+        "login for unattended runs to refresh."
+    ),
+)
+@click.argument("server")
+def mcp_login_cmd(server: str) -> None:
+    mcp_login(load_config(), server)
 
 
 @cli.command(
