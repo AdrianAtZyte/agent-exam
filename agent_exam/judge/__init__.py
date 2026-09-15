@@ -8,7 +8,7 @@ from .cache import (
     key_for_judge_agent,
     tools_signature,
 )
-from .dispatch import JudgeCall, call_judge, call_judge_agent
+from .dispatch import JudgeCall, build_judge_call, call_judge, call_judge_agent
 from .format_trajectory import format_trajectory
 from .parse import parse_verdict
 from .prompt import build_prompt
@@ -17,6 +17,7 @@ __all__ = [
     "JudgeCache",
     "JudgeCall",
     "agent_output_hash",
+    "build_judge_call",
     "build_prompt",
     "call_judge",
     "call_judge_agent",

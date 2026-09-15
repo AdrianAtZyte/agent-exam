@@ -92,6 +92,12 @@ class ProviderConfig(_StrictModel):
 
 
 class JudgeConfig(_StrictModel):
+    provider: str | None = None
+    """Harness that runs ``judge:`` and ``judge_agent:`` calls, with the
+    ``judge_model`` from its own ``providers:`` block. Unset, the judge runs
+    on the harness under evaluation.
+    """
+
     timeout_seconds: int = 60
     # Separate budget for ``judge_agent`` — its multi-turn tool loop
     # rarely fits in the plain-judge default. Higher default reflects

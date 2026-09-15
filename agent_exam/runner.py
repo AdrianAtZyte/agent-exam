@@ -19,7 +19,7 @@ from .artifacts import RunPaths
 from .errors import RateLimitExhausted, UsageError
 from .hooks import call_pre_run_hook
 from .ids import new_run_id
-from .judge import JudgeCache, JudgeCall
+from .judge import JudgeCache, build_judge_call
 from .mcp import preflight as mcp_preflight
 from .pool import AttemptOutcome, PoolPlan, forget_mcp_staging, run_plan
 from .providers import get_provider
@@ -265,23 +265,8 @@ def _build_scoring_context(
     paths: RunPaths,
     skills_excluded: frozenset[str] = frozenset(),
 ) -> ScoringContext:
-    """Assemble the judge-call + judge-cache once per run.
-
-    Judge runs through the same provider as the agent, with that provider's
-    `judge_model` when configured, otherwise its `default_model`. Providers
-    that accept an omitted model may receive an empty model string and use
-    their own default.
-    """
-    provider_cfg = cfg.provider(req.provider)
-    judge_model = provider_cfg.judge_model or provider_cfg.default_model or ""
-    judge_call = JudgeCall(
-        provider=provider,
-        judge_model=provider_cfg.resolve_model(judge_model),
-        provider_options={"extra_args": list(provider_cfg.extra_args)},
-        timeout_seconds=cfg.judge.timeout_seconds,
-        agent_timeout_seconds=cfg.judge.agent_timeout_seconds,
-    )
-
+    """Assemble the judge-call + judge-cache once per run."""
+    judge_call = build_judge_call(cfg, provider)
     judge_cache = JudgeCache(paths.judge_cache)
     return ScoringContext(
         provider=provider,
