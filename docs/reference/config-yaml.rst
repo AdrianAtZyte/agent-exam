@@ -213,6 +213,17 @@ No harness-specific fields beyond the common ones; the per-task
 ``judge``
 =========
 
+``provider``
+    Harness that runs ``judge:`` and ``judge_agent:`` calls, whatever harness
+    the run evaluates. Unset, the judge runs on the harness under evaluation.
+    A fixed judge keeps verdicts comparable when the same suite runs across
+    harnesses.
+
+``model``
+    Model for ``judge:`` and ``judge_agent:`` calls, resolved through the
+    ``model_aliases`` of the harness the judge runs on. Unset, that harness's
+    ``judge_model`` applies.
+
 ``timeout_seconds``
     How long a single ``judge:`` call may take before it is aborted. Defaults
     to 60.

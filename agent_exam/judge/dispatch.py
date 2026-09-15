@@ -5,9 +5,14 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from ..providers import get_provider
 from ..providers.base import Provider
 from ..schemas import TextBlock
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 CallFn = Callable[[str], str]
 """Abstract "call the judge with this prompt, get its text response" function.
@@ -20,9 +25,8 @@ Parameterized here so tests can substitute a stub without building a Provider.
 class JudgeCall:
     """Everything the judge needs to make one LLM call.
 
-    Constructed by the runner once per run and passed into the scoring
-    context. For v1 the judge uses the same Provider as the agent under
-    evaluation, with that provider's `judge_model` (usually haiku).
+    Constructed by :func:`build_judge_call` once per run and passed into
+    the scoring context.
 
     Two timeouts: ``timeout_seconds`` for the plain ``judge`` assertion
     (one-shot LLM call), ``agent_timeout_seconds`` for ``judge_agent``
@@ -34,6 +38,32 @@ class JudgeCall:
     provider_options: dict = field(default_factory=dict)
     timeout_seconds: int = 60
     agent_timeout_seconds: int = 300
+
+
+def build_judge_call(cfg: Config, harness: Provider) -> JudgeCall:
+    """Resolve the judge provider and model from *cfg*.
+
+    The judge runs on ``judge.provider`` when configured, otherwise on
+    *harness*, the provider under evaluation. The model is ``judge.model``,
+    falling back to that provider's ``judge_model`` and then to its
+    ``default_model``; providers that accept an omitted model may receive an
+    empty string and use their own default.
+    """
+    if cfg.judge.provider and cfg.judge.provider != harness.name:
+        provider = get_provider(cfg.judge.provider)
+    else:
+        provider = harness
+    provider_cfg = cfg.provider(provider.name)
+    judge_model = (
+        cfg.judge.model or provider_cfg.judge_model or provider_cfg.default_model or ""
+    )
+    return JudgeCall(
+        provider=provider,
+        judge_model=provider_cfg.resolve_model(judge_model),
+        provider_options={"extra_args": list(provider_cfg.extra_args)},
+        timeout_seconds=cfg.judge.timeout_seconds,
+        agent_timeout_seconds=cfg.judge.agent_timeout_seconds,
+    )
 
 
 def _last_assistant_text(turns) -> str:

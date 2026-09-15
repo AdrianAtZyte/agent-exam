@@ -20,7 +20,7 @@ import click
 
 from ..config import Config, load_config
 from ..errors import UsageError
-from ..judge import JudgeCache, JudgeCall
+from ..judge import JudgeCache, build_judge_call
 from ..providers import get_provider
 from ..report import AttemptReport, report_to_dict, score_attempt
 from ..scoring_context import ScoringContext
@@ -181,17 +181,8 @@ def _build_rescore_context(cfg: Config, data: RunData) -> ScoringContext:
     provider_name = (
         data.run_json.get("config", {}).get("provider") or cfg.default_harness
     )
-    provider_cfg = cfg.provider(provider_name)
-    judge_model = provider_cfg.judge_model or provider_cfg.default_model or ""
     provider = get_provider(provider_name)
-
-    judge_call = JudgeCall(
-        provider=provider,
-        judge_model=provider_cfg.resolve_model(judge_model),
-        provider_options={"extra_args": list(provider_cfg.extra_args)},
-        timeout_seconds=cfg.judge.timeout_seconds,
-        agent_timeout_seconds=cfg.judge.agent_timeout_seconds,
-    )
+    judge_call = build_judge_call(cfg, provider)
 
     skills_excluded = frozenset(
         data.run_json.get("config", {}).get("skills_excluded") or []

@@ -93,6 +93,10 @@ mcp_servers:
       Authorization: "Bearer ${REPORTS_TOKEN}"
 
 judge:
+  # Harness and model the judge runs on, whatever harness the run evaluates.
+  # Default to the harness under evaluation and its `judge_model`.
+  provider: claude_code
+  model: claude-haiku-4-5
   timeout_seconds: 60
 
 default_task_timeout_seconds: 300
