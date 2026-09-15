@@ -201,7 +201,7 @@ sandbox. Two things worth knowing:
 No harness-specific fields beyond the common ones; the per-task
 ``allowed_tools`` is the knob that matters. Three things worth knowing:
 
-- Model names use dots (``claude-sonnet-4.6``), not hyphens.
+- Model names use dots (``claude-opus-4.8``), not hyphens.
 - ``cost_usd`` is always null, displayed as ``?``, because Copilot CLI does not
   report cost. Output token counts are tracked per turn, and
   ``metrics.raw["premium_requests"]`` holds the number of premium LLM requests

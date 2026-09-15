@@ -49,7 +49,7 @@ block:
 
     providers:
       claude_code:
-        default_model: claude-opus-4-7
+        default_model: claude-opus-5
 
 Suites and fixtures are committed. **All fixtures live in version control** —
 evals have to be reproducible across machines and team members, so fixtures

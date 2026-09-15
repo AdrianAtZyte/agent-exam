@@ -171,7 +171,7 @@ Output::
 
     Run:      run-2026-04-25-1432
     Suite:    github-release::list-drafts (1 task × k=1 = 1 attempts)
-    Provider: claude_code (claude-sonnet-4-6)
+    Provider: claude_code (claude-sonnet-5)
     Parallel: up to 1
 
     PASS              github-release::list-drafts attempt-1  (38s total, 4s scoring)
