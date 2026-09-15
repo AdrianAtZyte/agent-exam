@@ -69,6 +69,9 @@ def skill_descriptions_in_session(
         hint=(
             f"Claude Code ignored the descriptions of {count} "
             f"({', '.join(dropped)}), most likely due to the total length of "
-            "all skill descriptions. Consider shortening skill descriptions."
+            "all skill descriptions. Claude Code's own bundled skills share "
+            "this budget with the staged ones, so the room left is smaller "
+            "than the staged set alone suggests. Consider shortening skill "
+            "descriptions."
         ),
     )
