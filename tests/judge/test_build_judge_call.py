@@ -32,3 +32,12 @@ def test_judge_provider_uses_its_own_block():
     jc = build_judge_call(cfg, get_provider("claude_code"))
     assert jc.provider.name == "dummy"
     assert jc.judge_model == "dummy-1"
+
+
+def test_judge_model_overrides_provider_block():
+    cfg = _config(
+        judge={"provider": "dummy", "model": "j"},
+        providers={"dummy": {"judge_model": "d", "model_aliases": {"j": "judge-1"}}},
+    )
+    jc = build_judge_call(cfg, get_provider("claude_code"))
+    assert jc.judge_model == "judge-1"

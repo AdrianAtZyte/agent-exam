@@ -93,9 +93,13 @@ class ProviderConfig(_StrictModel):
 
 class JudgeConfig(_StrictModel):
     provider: str | None = None
-    """Harness that runs ``judge:`` and ``judge_agent:`` calls, with the
-    ``judge_model`` from its own ``providers:`` block. Unset, the judge runs
-    on the harness under evaluation.
+    """Harness that runs ``judge:`` and ``judge_agent:`` calls. Unset, the
+    judge runs on the harness under evaluation.
+    """
+
+    model: str | None = None
+    """Model for ``judge:`` and ``judge_agent:`` calls. Unset, the
+    ``judge_model`` of the provider the judge runs on applies.
     """
 
     timeout_seconds: int = 60

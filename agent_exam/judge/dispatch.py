@@ -44,17 +44,19 @@ def build_judge_call(cfg: Config, harness: Provider) -> JudgeCall:
     """Resolve the judge provider and model from *cfg*.
 
     The judge runs on ``judge.provider`` when configured, otherwise on
-    *harness*, the provider under evaluation. Either way the model is that
-    provider's ``judge_model``, falling back to its ``default_model``;
-    providers that accept an omitted model may receive an empty string and
-    use their own default.
+    *harness*, the provider under evaluation. The model is ``judge.model``,
+    falling back to that provider's ``judge_model`` and then to its
+    ``default_model``; providers that accept an omitted model may receive an
+    empty string and use their own default.
     """
     if cfg.judge.provider and cfg.judge.provider != harness.name:
         provider = get_provider(cfg.judge.provider)
     else:
         provider = harness
     provider_cfg = cfg.provider(provider.name)
-    judge_model = provider_cfg.judge_model or provider_cfg.default_model or ""
+    judge_model = (
+        cfg.judge.model or provider_cfg.judge_model or provider_cfg.default_model or ""
+    )
     return JudgeCall(
         provider=provider,
         judge_model=provider_cfg.resolve_model(judge_model),

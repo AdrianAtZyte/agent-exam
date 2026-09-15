@@ -155,23 +155,23 @@ def _framework_checks(cfg: Config, provider_name: str) -> list[CheckResult]:
     omitted_model_label = _omitted_model_label(judge_provider_name)
     # Judge model configured (soft: some providers can omit --model, but
     # eval scoring should not depend on a developer's local harness default).
-    if not provider_cfg.judge_model:
+    judge_model = cfg.judge.model or provider_cfg.judge_model
+    unset = f"judge.model and providers.{judge_provider_name}.judge_model unset"
+    if not judge_model:
         if provider_cfg.default_model:
             hint = (
-                f"providers.{judge_provider_name}.judge_model unset — judge "
-                f"calls will use default_model={provider_cfg.default_model}"
+                f"{unset} — judge calls will use "
+                f"default_model={provider_cfg.default_model}"
             )
         elif omitted_model_label:
             hint = (
-                f"providers.{judge_provider_name}.judge_model unset — judge "
-                f"calls will use {omitted_model_label}; set judge_model for "
-                "stable results"
+                f"{unset} — judge calls will use {omitted_model_label}; set "
+                "judge.model for stable results"
             )
         else:
             hint = (
-                f"providers.{judge_provider_name}.judge_model unset and no "
-                "default_model configured — judge assertions may fail or use "
-                "harness defaults"
+                f"{unset} and no default_model configured — judge assertions "
+                "may fail or use harness defaults"
             )
         checks.append(
             CheckResult(
@@ -185,7 +185,7 @@ def _framework_checks(cfg: Config, provider_name: str) -> list[CheckResult]:
             CheckResult(
                 name="judge model configured",
                 status="OK",
-                hint=provider_cfg.judge_model,
+                hint=judge_model,
             )
         )
 
