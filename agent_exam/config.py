@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -124,16 +125,17 @@ class McpOAuth(_StrictModel):
 
     Resolving the server exports an access token into `env_var`, so the
     server's own `env`/`headers` reference it as `${<env_var>}` the same way
-    they would a token obtained any other way. With `client_secret`, the
-    token comes from the client credentials grant against `token_url`;
-    without it, from refreshing the browser login `agent-exam mcp login`
-    stored for the server, where `client_id` names a client registered by
-    hand instead of one registered dynamically. `${VAR}` in `token_url`,
-    `client_id`, `client_secret` and `scope` is substituted like any other
-    MCP server field.
+    they would a token obtained any other way. An HTTP server needs neither:
+    without `env_var` the token goes into its `Authorization` header as a
+    bearer token. With `client_secret`, the token comes from the client
+    credentials grant against `token_url`; without it, from refreshing the
+    browser login `agent-exam mcp login` stored for the server, where
+    `client_id` names a client registered by hand instead of one registered
+    dynamically. `${VAR}` in `token_url`, `client_id`, `client_secret` and
+    `scope` is substituted like any other MCP server field.
     """
 
-    env_var: str
+    env_var: str | None = None
     token_url: str | None = None
     client_id: str | None = None
     client_secret: str | None = None
@@ -171,6 +173,8 @@ class McpStdioServer(_StrictModel):
                 "a stdio server has no URL to log in to; set client_secret for "
                 "the client credentials grant"
             )
+        if oauth is not None and oauth.env_var is None:
+            raise ValueError("a stdio server takes its token from env; set env_var")
         return oauth
 
 
@@ -222,6 +226,32 @@ class Config(_StrictModel):
     # subset with their own `mcp_servers:`; definitions live here so
     # credentials stay out of task files, which reports serialize verbatim.
     mcp_servers: dict[McpServerName, McpServerConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_oauth_header(cls, data: Any) -> Any:
+        """Give an HTTP server whose `oauth` names no `env_var` one derived
+        from the server name, and an `Authorization` bearer header reading it
+        unless the server sets that header itself.
+        """
+        servers = data.get("mcp_servers") if isinstance(data, dict) else None
+        for name, server in (servers or {}).items():
+            oauth = server.get("oauth") if isinstance(server, dict) else None
+            if (
+                not isinstance(oauth, dict)
+                or "url" not in server
+                or oauth.get("env_var")
+            ):
+                continue
+            var = f"MCP_{re.sub(r'[^A-Za-z0-9]', '_', str(name)).upper()}_TOKEN"
+            oauth["env_var"] = var
+            headers = server.setdefault("headers", {})
+            if isinstance(headers, dict) and not any(
+                k.lower() == "authorization" for k in headers
+            ):
+                headers["Authorization"] = f"Bearer ${{{var}}}"
+        return data
+
     # Dotted module:callable path for the pre-run hook, e.g.
     # ``"evals.hooks:pre_run_hook"``. Loaded from ``pyproject.toml
     # [tool.agent-exam] pre_run_hook``.

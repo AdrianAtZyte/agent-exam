@@ -333,10 +333,12 @@ header it can carry, and a server needing any other has to be scoped away from
 it with ``providers:``.
 
 A server whose token comes from OAuth obtains it via ``oauth`` instead of a
-pre-obtained token in ``env``/``headers``. The access token is exported into
-``env_var`` once per run, before the server is resolved, and the server's own
-``env``/``headers`` reference it with ``${VAR}`` like a token obtained any
-other way. ``scope`` is optional.
+pre-obtained token in ``env``/``headers``. The access token is obtained once
+per run, before the server is resolved, and sent as the bearer token of the
+server's ``Authorization`` header. A server that needs it elsewhere, such as
+a stdio server's ``env``, names an ``env_var`` under ``oauth`` instead, and
+its own ``env``/``headers`` reference it with ``${VAR}`` like a token
+obtained any other way. ``scope`` is optional.
 
 A remote server protected the way the MCP specification describes, with a
 login in the browser, is logged in to once with ``agent-exam mcp login
@@ -347,10 +349,7 @@ login in the browser, is logged in to once with ``agent-exam mcp login
     mcp_servers:
       tickets:
         url: https://tickets.example.com/mcp
-        oauth:
-          env_var: TICKETS_TOKEN
-        headers:
-          Authorization: "Bearer ${TICKETS_TOKEN}"
+        oauth: {}
 
 ``client_id`` names a client registered with the authorization server by hand,
 for one that offers no dynamic registration. Logins are stored per user in
@@ -366,7 +365,6 @@ A client that has a secret runs the client credentials grant against
           token_url: https://auth.example.com/oauth/token
           client_id: "${TICKETS_CLIENT_ID}"
           client_secret: "${TICKETS_CLIENT_SECRET}"
-          env_var: TICKETS_TOKEN
 
 Tasks attach every configured server unless they name a subset with their own
 ``mcp_servers:`` — see :doc:`task-yaml`. Definitions belong here rather than in

@@ -550,6 +550,33 @@ mcp_servers:
 """
 
 
+def test_config_defaults_oauth_to_the_authorization_header(tmp_path):
+    config = _LOGIN_CONFIG.replace(
+        "    oauth:\n      env_var: REPORTS_TOKEN\n    headers:\n"
+        '      Authorization: "Bearer ${REPORTS_TOKEN}"\n',
+        "    oauth: {}\n",
+    )
+
+    server = load_config(_project(tmp_path, config)).mcp_servers["reports"]
+
+    assert server.oauth.env_var == "MCP_REPORTS_TOKEN"
+    assert server.headers == {"Authorization": "Bearer ${MCP_REPORTS_TOKEN}"}
+
+
+def test_config_requires_env_var_on_a_stdio_server(tmp_path):
+    config = (
+        _OAUTH_CONFIG.replace(
+            "    type: http\n    url: https://reports.example.test/mcp",
+            "    command: mcp-reports",
+        )
+        .replace("      env_var: REPORTS_TOKEN\n", "")
+        .replace("headers:", "env:")
+    )
+
+    with pytest.raises(UsageError, match=r"set env_var"):
+        load_config(_project(tmp_path, config))
+
+
 def _store_login(monkeypatch, tmp_path, entry: dict | None) -> Path:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     path = tmp_path / "xdg" / "agent-exam" / "mcp-oauth.json"
