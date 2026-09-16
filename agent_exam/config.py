@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +12,14 @@ else:
     import tomli as tomllib
 
 import yaml
-from pydantic import Field, PrivateAttr, StringConstraints, ValidationError
+from pydantic import (
+    Field,
+    PrivateAttr,
+    StringConstraints,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from ._models import _StrictModel, render_validation_error
 from .errors import UsageError
@@ -122,22 +130,38 @@ class TagConfig(_StrictModel):
     exclude_by_default: bool = False
 
 
-class McpOAuthClientCredentials(_StrictModel):
-    """An OAuth 2.0 client credentials grant, under a server's `oauth:`.
+class McpOAuth(_StrictModel):
+    """OAuth 2.0 credentials for a server, under its `oauth:`.
 
-    Resolving the server it belongs to runs the grant against `token_url`
-    and exports the access token into `env_var`, so the server's own
-    `env`/`headers` reference it as `${<env_var>}` the same way they would
-    a token obtained any other way. `${VAR}` in `token_url`, `client_id`,
-    `client_secret` and `scope` is substituted like any other MCP server
-    field.
+    Resolving the server exports an access token into `env_var`, so the
+    server's own `env`/`headers` reference it as `${<env_var>}` the same way
+    they would a token obtained any other way. An HTTP server needs neither:
+    without `env_var` the token goes into its `Authorization` header as a
+    bearer token. With `client_secret`, the token comes from the client
+    credentials grant against `token_url`; without it, from refreshing the
+    browser login `agent-exam mcp login` stored for the server, where
+    `client_id` names a client registered by hand instead of one registered
+    dynamically. `${VAR}` in `token_url`, `client_id`, `client_secret` and
+    `scope` is substituted like any other MCP server field.
     """
 
-    token_url: str
-    client_id: str
-    client_secret: str
+    env_var: str | None = None
+    token_url: str | None = None
+    client_id: str | None = None
+    client_secret: str | None = None
     scope: str | None = None
-    env_var: str
+
+    @model_validator(mode="after")
+    def _check_grant(self) -> McpOAuth:
+        if self.client_secret is not None:
+            if self.token_url is None or self.client_id is None:
+                raise ValueError("client_secret needs token_url and client_id with it")
+        elif self.token_url is not None:
+            raise ValueError(
+                "token_url is discovered from the server; set client_secret too "
+                "for the client credentials grant"
+            )
+        return self
 
 
 class McpStdioServer(_StrictModel):
@@ -149,7 +173,19 @@ class McpStdioServer(_StrictModel):
     command: str
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
-    oauth: McpOAuthClientCredentials | None = None
+    oauth: McpOAuth | None = None
+
+    @field_validator("oauth")
+    @classmethod
+    def _check_oauth(cls, oauth: McpOAuth | None) -> McpOAuth | None:
+        if oauth is not None and oauth.client_secret is None:
+            raise ValueError(
+                "a stdio server has no URL to log in to; set client_secret for "
+                "the client credentials grant"
+            )
+        if oauth is not None and oauth.env_var is None:
+            raise ValueError("a stdio server takes its token from env; set env_var")
+        return oauth
 
 
 class McpHttpServer(_StrictModel):
@@ -160,7 +196,7 @@ class McpHttpServer(_StrictModel):
     type: Literal["http", "sse"] = "http"
     url: str
     headers: dict[str, str] = Field(default_factory=dict)
-    oauth: McpOAuthClientCredentials | None = None
+    oauth: McpOAuth | None = None
 
 
 McpServerConfig = McpStdioServer | McpHttpServer
@@ -200,6 +236,32 @@ class Config(_StrictModel):
     # subset with their own `mcp_servers:`; definitions live here so
     # credentials stay out of task files, which reports serialize verbatim.
     mcp_servers: dict[McpServerName, McpServerConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_oauth_header(cls, data: Any) -> Any:
+        """Give an HTTP server whose `oauth` names no `env_var` one derived
+        from the server name, and an `Authorization` bearer header reading it
+        unless the server sets that header itself.
+        """
+        servers = data.get("mcp_servers") if isinstance(data, dict) else None
+        for name, server in (servers or {}).items():
+            oauth = server.get("oauth") if isinstance(server, dict) else None
+            if (
+                not isinstance(oauth, dict)
+                or "url" not in server
+                or oauth.get("env_var")
+            ):
+                continue
+            var = f"MCP_{re.sub(r'[^A-Za-z0-9]', '_', str(name)).upper()}_TOKEN"
+            oauth["env_var"] = var
+            headers = server.setdefault("headers", {})
+            if isinstance(headers, dict) and not any(
+                k.lower() == "authorization" for k in headers
+            ):
+                headers["Authorization"] = f"Bearer ${{{var}}}"
+        return data
+
     # Dotted module:callable path for the pre-run hook, e.g.
     # ``"evals.hooks:pre_run_hook"``. Loaded from ``pyproject.toml
     # [tool.agent-exam] pre_run_hook``.

@@ -79,8 +79,13 @@ mcp_servers:
     url: https://tickets.example.com/mcp
     headers:
       Authorization: "Bearer ${TICKETS_TOKEN}"
-  # `oauth` runs a client credentials grant and exports the access token
-  # into `env_var`, for a server whose token isn't pre-obtained.
+  # An empty `oauth` refreshes the browser login stored by
+  # `agent-exam mcp login search` and sends the access token as the bearer
+  # token of the Authorization header.
+  search:
+    url: https://search.example.com/mcp
+    oauth: {}
+  # `oauth` with a client secret runs the client credentials grant instead.
   reports:
     type: http
     url: https://reports.example.com/mcp
@@ -88,9 +93,6 @@ mcp_servers:
       token_url: https://auth.example.com/oauth/token
       client_id: "${REPORTS_CLIENT_ID}"
       client_secret: "${REPORTS_CLIENT_SECRET}"
-      env_var: REPORTS_TOKEN
-    headers:
-      Authorization: "Bearer ${REPORTS_TOKEN}"
 
 judge:
   # Harness and model the judge runs on, whatever harness the run evaluates.
