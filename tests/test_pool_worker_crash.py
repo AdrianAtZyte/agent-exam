@@ -39,7 +39,8 @@ class _FakePool:
 
 def _plan(*names):
     tasks = [
-        SimpleNamespace(name=name, suite="s", concurrency_group=None) for name in names
+        SimpleNamespace(name=name, suite="s", concurrency_group=None, mcp_servers=None)
+        for name in names
     ]
     return PoolPlan(tasks=tasks, attempts_per_task=1, n_parallel=2)
 

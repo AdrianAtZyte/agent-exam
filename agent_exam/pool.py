@@ -38,9 +38,10 @@ if TYPE_CHECKING:
 _WORKER_SEMAPHORES: dict[str, object] | None = None
 
 
-def _init_worker(semaphores: dict[str, object]) -> None:
+def _init_worker(semaphores: dict[str, object], mcp_staging: dict[tuple, dict]) -> None:
     global _WORKER_SEMAPHORES  # noqa: PLW0603 -- process-pool initializer
     _WORKER_SEMAPHORES = semaphores
+    _MCP_STAGING.update(mcp_staging)
 
 
 @dataclass
@@ -168,10 +169,12 @@ def _mirror_cwd(src: Path, dst: Path) -> None:
     )
 
 
-# Staged MCP configs by (provider, run tmp root, server set). Per worker
-# process, which is as far as the memo has to reach: the pool hands each
-# attempt to a fresh Provider instance, and every attempt asking for the same
-# servers would otherwise re-render an identical config.
+# Staged MCP configs by (provider, run tmp root, server set). The parent
+# fills it for the whole run before the pool starts and hands it to every
+# worker through the initializer, so each server set is staged exactly once
+# per run: the pool gives each attempt a fresh Provider instance, and every
+# attempt asking for the same servers would otherwise re-render an identical
+# config.
 _MCP_STAGING: dict[tuple, dict] = {}
 
 
@@ -204,6 +207,25 @@ def forget_mcp_staging(run_tmp_root: Path) -> None:
     """
     for key in [k for k in _MCP_STAGING if k[1] == run_tmp_root]:
         del _MCP_STAGING[key]
+
+
+def _stage_mcp(
+    cfg: Config, plan: PoolPlan, run_tmp_root: Path, provider_name: str
+) -> dict[tuple, dict]:
+    """Stage the MCP config of every server set *plan* attaches, and return
+    the `_MCP_STAGING` entries for *run_tmp_root*.
+
+    Staging a server that carries `oauth` refreshes its stored login, and an
+    authorization server that rotates refresh tokens invalidates the whole
+    token family when a superseded one is presented — so the refresh has to
+    happen once for the run, not once per process. Workers get these entries
+    through the pool initializer, and inherit the access token the refresh
+    exported into the environment, which is why this runs before the pool.
+    """
+    provider = get_provider(provider_name)
+    for task in plan.tasks:
+        _mcp_options(provider, run_tmp_root, cfg, task.mcp_servers)
+    return {key: value for key, value in _MCP_STAGING.items() if key[1] == run_tmp_root}
 
 
 def _execute_attempt(
@@ -506,6 +528,7 @@ def run_plan(
     hung.
     """
     semaphores = _build_semaphores(cfg, plan)
+    mcp_staging = _stage_mcp(cfg, plan, run_tmp_root, provider_name)
 
     def _announce(task: Task, attempt_n: int) -> None:
         if on_attempt_start is not None:
@@ -565,7 +588,7 @@ def run_plan(
         max_workers=plan.n_parallel,
         mp_context=ctx,
         initializer=_init_worker,
-        initargs=(worker_semaphores,),
+        initargs=(worker_semaphores, mcp_staging),
     ) as pool:
         for batch in batches:
             if not batch:
