@@ -54,7 +54,7 @@ def _run(monkeypatch, plan, outcomes):
         attempt_cwd=lambda suite, task, n: Path("/archive") / suite / task / str(n)
     )
     return run_plan(
-        SimpleNamespace(),
+        SimpleNamespace(mcp_servers={}),
         plan,
         Path("/tmp-root"),
         "dummy",
