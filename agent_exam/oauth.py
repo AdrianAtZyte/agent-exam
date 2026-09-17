@@ -96,9 +96,19 @@ def has_login(url: str) -> bool:
     return url in _load_store()
 
 
-def refresh_login(url: str, name: str, where: str) -> str:
+def expires_in(payload: dict) -> int | None:
+    """The lifetime in seconds the token response *payload* declares for the
+    token it carries."""
+    try:
+        return int(payload["expires_in"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def refresh_login(url: str, name: str, where: str) -> tuple[str, int | None]:
     """Return a fresh access token from the login stored for the server at
-    *url*, rotating the stored refresh token when the server issues one.
+    *url*, and its lifetime, rotating the stored refresh token when the
+    server issues one.
     """
     hint = f"run `agent-exam mcp login {name}`"
     entry = _load_store().get(url)
@@ -124,7 +134,7 @@ def refresh_login(url: str, name: str, where: str) -> str:
         )
     if payload.get("refresh_token"):
         _save_login(url, {**entry, "refresh_token": payload["refresh_token"]})
-    return token
+    return token, expires_in(payload)
 
 
 def _origin_and_path(url: str) -> tuple[str, str]:

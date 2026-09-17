@@ -4,17 +4,20 @@ import json
 import os
 import re
 import shutil
+import threading
+import time
 import uuid
 from typing import TYPE_CHECKING
 
 from .config import McpOAuth, McpStdioServer
 from .errors import UsageError
-from .oauth import has_login, post, refresh_login
+from .oauth import expires_in, has_login, post, refresh_login
 from .schemas import CheckResult
 from .trajectory_walk import iter_tool_calls
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, MutableMapping
+    from contextlib import AbstractContextManager
     from pathlib import Path
 
     from .config import Config, McpServerConfig
@@ -59,8 +62,11 @@ def _oauth_ref_values(oauth: McpOAuth) -> tuple[str, ...]:
     return tuple(v for v in values if v)
 
 
-def _fetch_oauth_token(oauth: McpOAuth, where: str, project_root: Path) -> str:
-    """Run *oauth*'s client credentials grant and return the access token."""
+def _fetch_oauth_token(
+    oauth: McpOAuth, where: str, project_root: Path
+) -> tuple[str, int | None]:
+    """Run *oauth*'s client credentials grant and return the access token
+    and its lifetime."""
     token_url = _expand_env_refs(oauth.token_url, f"{where}.token_url", project_root)
     body = {
         "grant_type": "client_credentials",
@@ -79,14 +85,89 @@ def _fetch_oauth_token(oauth: McpOAuth, where: str, project_root: Path) -> str:
         raise UsageError(
             f"{where}: token response from {token_url} has no access_token"
         )
-    return token
+    return token, expires_in(payload)
+
+
+# The access token of each OAuth server, by server name, as
+# ``{"token", "lifetime", "renew_at"}``. A run replaces both of these with
+# proxies its pool workers share, so that the whole run mints through one
+# cache under one lock; on their own they serve a single process.
+_TOKENS: MutableMapping[str, dict] = {}
+_TOKEN_LOCK: AbstractContextManager = threading.Lock()
+
+# The share of a token's life to spend before minting the next one, leaving
+# the attempt it is minted for room to finish under it.
+_RENEW_AT = 0.8
+
+
+def use_token_cache(
+    tokens: MutableMapping[str, dict], lock: AbstractContextManager
+) -> None:
+    """Mint OAuth access tokens through *tokens*, guarded by *lock*.
+
+    Refreshing a stored login rotates the refresh token, and an authorization
+    server that detects replay revokes the whole family when a superseded one
+    arrives — so the processes a run fans out to have to mint through one
+    cache, behind one lock, rather than each asking for a token of its own.
+    """
+    global _TOKENS, _TOKEN_LOCK
+    _TOKENS, _TOKEN_LOCK = tokens, lock
+
+
+def token_lifetimes() -> dict[str, int]:
+    """How long the access token held for each OAuth server lives, as the
+    grant that minted it declared."""
+    return {
+        name: entry["lifetime"]
+        for name, entry in _TOKENS.items()
+        if entry["lifetime"] is not None
+    }
+
+
+def oauth_servers(cfg: Config, names: list[str] | None = None) -> list[str]:
+    """The selected servers that obtain their token through OAuth.
+
+    *names* selects a subset of ``cfg.mcp_servers`` the way
+    :py:func:`resolve_servers` does.
+    """
+    return [name for name, s in _selected(cfg, names).items() if s.oauth is not None]
+
+
+def _live_token(name: str) -> dict | None:
+    entry = _TOKENS.get(name)
+    if entry is None:
+        return None
+    renew_at = entry["renew_at"]
+    return None if renew_at is not None and time.time() >= renew_at else entry
 
 
 def _oauth_token(server: McpServerConfig, name: str, project_root: Path) -> str:
+    """The access token for *server*, minted when the held one is spent.
+
+    A grant that declares no lifetime is taken to outlast the run, since
+    there is nothing to say when to mint the next one.
+    """
+    entry = _live_token(name)
+    if entry is not None:
+        return entry["token"]
     where = f"mcp_servers.{name}.oauth"
-    if server.oauth.client_secret is not None:
-        return _fetch_oauth_token(server.oauth, where, project_root)
-    return refresh_login(server.url, name, where)
+    with _TOKEN_LOCK:
+        # Another process may have minted while this one waited for the lock.
+        entry = _live_token(name)
+        if entry is None:
+            if server.oauth.client_secret is not None:
+                token, lifetime = _fetch_oauth_token(server.oauth, where, project_root)
+            else:
+                token, lifetime = refresh_login(server.url, name, where)
+            entry = {
+                "token": token,
+                "lifetime": lifetime,
+                "renew_at": None
+                if lifetime is None
+                else time.time() + lifetime * _RENEW_AT,
+            }
+            _TOKENS[name] = entry
+    return entry["token"]
 
 
 def _selected(cfg: Config, names: list[str] | None) -> dict:
@@ -487,7 +568,7 @@ def connection_check(
     return CheckResult(
         name="mcp servers connected",
         status="OK",
-        hint=f"{len(statuses)} connected",
+        hint=f"{len(statuses)} connected at session start",
     )
 
 

@@ -7,7 +7,8 @@ Scoring (including judge dispatch) runs on the parent so judge-cache access
 is single-threaded and picklability of the judge context is a non-issue.
 
 Concurrency groups are implemented via `multiprocessing.Manager().Semaphore`
-proxies passed to workers through the pool initializer.
+proxies passed to workers through the pool initializer, which also hands over
+the run's staged MCP configs and its OAuth token cache.
 """
 
 from __future__ import annotations
@@ -22,7 +23,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .errors import AgentExamError, ProviderTimeout, UsageError
-from .mcp import connection_check, is_mcp_tool, is_mcp_tool_target
+from .mcp import (
+    connection_check,
+    is_mcp_tool,
+    is_mcp_tool_target,
+    oauth_servers,
+    token_lifetimes,
+    use_token_cache,
+)
 from .providers import get_provider
 from .schemas import RunResult
 from .serde import to_json_dict, write_json
@@ -38,9 +46,12 @@ if TYPE_CHECKING:
 _WORKER_SEMAPHORES: dict[str, object] | None = None
 
 
-def _init_worker(semaphores: dict[str, object]) -> None:
+def _init_worker(shared: dict[str, object], mcp_staging: dict[tuple, dict]) -> None:
     global _WORKER_SEMAPHORES  # noqa: PLW0603 -- process-pool initializer
-    _WORKER_SEMAPHORES = semaphores
+    _WORKER_SEMAPHORES = shared.get("semaphores") or {}
+    _MCP_STAGING.update(mcp_staging)
+    if "tokens" in shared:
+        use_token_cache(shared["tokens"], shared["token_lock"])
 
 
 @dataclass
@@ -168,10 +179,12 @@ def _mirror_cwd(src: Path, dst: Path) -> None:
     )
 
 
-# Staged MCP configs by (provider, run tmp root, server set). Per worker
-# process, which is as far as the memo has to reach: the pool hands each
-# attempt to a fresh Provider instance, and every attempt asking for the same
-# servers would otherwise re-render an identical config.
+# Staged MCP configs by (provider, run tmp root, server set). The parent
+# fills it for the whole run before the pool starts and hands it to every
+# worker through the initializer, so each server set is staged exactly once
+# per run: the pool gives each attempt a fresh Provider instance, and every
+# attempt asking for the same servers would otherwise re-render an identical
+# config.
 _MCP_STAGING: dict[tuple, dict] = {}
 
 
@@ -183,7 +196,15 @@ def _mcp_options(
     Whatever file the harness needs is rendered under the run tmp root — a
     sibling of the attempt cwd, never inside it, so a server block holding a
     credential stays out of the archived cwd.
+
+    A set holding a server that carries ``oauth`` is staged afresh each time
+    instead: its access token is rendered into what the harness reads, and an
+    attempt handed a spent one has its tool calls rejected. The token comes
+    from the cache the run's processes share, so staging again costs a file
+    render rather than a token request.
     """
+    if oauth_servers(cfg, servers):
+        return provider.stage_mcp_config(run_tmp_root, cfg, servers)
     key = (
         provider.name,
         run_tmp_root,
@@ -204,6 +225,77 @@ def forget_mcp_staging(run_tmp_root: Path) -> None:
     """
     for key in [k for k in _MCP_STAGING if k[1] == run_tmp_root]:
         del _MCP_STAGING[key]
+
+
+def _stage_mcp(
+    cfg: Config, plan: PoolPlan, run_tmp_root: Path, provider_name: str
+) -> dict[tuple, dict]:
+    """Stage the MCP config of every server set *plan* attaches, and return
+    the `_MCP_STAGING` entries for *run_tmp_root*.
+
+    Running here rather than in the workers keeps a server nobody can resolve
+    to one failure, mints the run's first OAuth token into the cache the
+    workers go on to share, and renders the config of every set without one
+    exactly once for the whole run.
+    """
+    provider = get_provider(provider_name)
+    for task in plan.tasks:
+        _mcp_options(provider, run_tmp_root, cfg, task.mcp_servers)
+    return {key: value for key, value in _MCP_STAGING.items() if key[1] == run_tmp_root}
+
+
+def _warn_short_lived_tokens(cfg: Config, plan: PoolPlan, servers: set[str]) -> None:
+    """Warn about an access token of one of *servers* that lapses before an
+    attempt of *plan* has run out its budget.
+
+    Every attempt starts on a token with most of its life ahead of it, but
+    the harness holds the one it was handed for as long as the attempt lasts,
+    so an attempt outliving its own credential has the server reject its tool
+    calls from that point on. Harnesses report that as a bad ``Authorization``
+    header, which sends the reader to fix a configuration that is correct.
+    """
+    lifetimes = {
+        name: lifetime
+        for name, lifetime in token_lifetimes().items()
+        if name in servers
+    }
+    if not lifetimes:
+        return
+    budget = max(_attempt_timeout(task, cfg) for task in plan.tasks)
+    lapsing = sorted(
+        f"{name} ({lifetime}s)"
+        for name, lifetime in lifetimes.items()
+        if lifetime < budget
+    )
+    if lapsing:
+        print(
+            f"warning: MCP access tokens shorter-lived than this run's {budget}s "
+            f"task budget: {', '.join(lapsing)}. Each attempt starts on a fresh "
+            "one, but a tool call made once the attempt has outlived it is "
+            "rejected, and the harness reports that as an Authorization header "
+            "the config got wrong.",
+            file=sys.stderr,
+        )
+
+
+def _attempt_timeout(task: Task, cfg: Config) -> int:
+    """The wall-clock budget one attempt of *task* runs under."""
+    # Skill-target trigger tasks default to 60s: positives get killed on
+    # first skill fire; negatives get killed on first non-Skill tool use or
+    # first message_stop (see negative_trigger_mode). Wall-clock is a
+    # fallback for cold-start latency — stream signals handle the
+    # fast path. 60s accommodates slower providers (e.g. opencode
+    # with z-ai/glm-5.1 takes ~8s to first byte).
+    #
+    # Tool cases get the full task budget instead. The agent looks around
+    # before it reaches for a tool, and an npx-booted stdio server can spend
+    # a fair share of a 60-second budget just starting, so the routing
+    # decision lands far later than a skill fire does.
+    if task.timeout_seconds is not None:
+        return task.timeout_seconds
+    if task.kind == "trigger" and not task.target_tool:
+        return min(60, cfg.default_task_timeout_seconds)
+    return cfg.default_task_timeout_seconds
 
 
 def _execute_attempt(
@@ -284,23 +376,7 @@ def _execute_attempt(
 
     provider_options.update(_mcp_options(provider, run_tmp_root, cfg, task.mcp_servers))
 
-    # Skill-target trigger tasks default to 60s: positives get killed on
-    # first skill fire; negatives get killed on first non-Skill tool use or
-    # first message_stop (see negative_trigger_mode). Wall-clock is a
-    # fallback for cold-start latency — stream signals handle the
-    # fast path. 60s accommodates slower providers (e.g. opencode
-    # with z-ai/glm-5.1 takes ~8s to first byte).
-    #
-    # Tool cases get the full task budget instead. The agent looks around
-    # before it reaches for a tool, and an npx-booted stdio server can spend
-    # a fair share of a 60-second budget just starting, so the routing
-    # decision lands far later than a skill fire does.
-    if task.timeout_seconds is not None:
-        timeout = task.timeout_seconds
-    elif task.kind == "trigger" and not task.target_tool:
-        timeout = min(60, cfg.default_task_timeout_seconds)
-    else:
-        timeout = cfg.default_task_timeout_seconds
+    timeout = _attempt_timeout(task, cfg)
 
     sem = None
     if task.concurrency_group and _WORKER_SEMAPHORES is not None:
@@ -462,15 +538,16 @@ class PoolPlan:
     serial_within_task: bool = False
 
 
-def _build_semaphores(cfg: Config, plan: PoolPlan) -> dict[str, object]:
-    """Create a managed Semaphore for each concurrency group actually used.
+def _build_shared(cfg: Config, plan: PoolPlan, *, tokens: bool) -> dict[str, object]:
+    """Create the manager proxies the pool's workers share: a Semaphore per
+    concurrency group actually used, and, when *tokens*, the OAuth token
+    cache with the lock that serializes minting into it.
 
-    Returns an empty dict (and skips Manager startup) when no task in the
-    plan tags a group — keeps the simple serial path free of manager
-    overhead.
+    Returns an empty dict (and skips Manager startup) when the plan needs
+    neither — keeps the simple serial path free of manager overhead.
     """
     groups_used = {t.concurrency_group for t in plan.tasks if t.concurrency_group}
-    if not groups_used:
+    if not groups_used and not tokens:
         return {}
     manager = mp.Manager()
     semaphores: dict[str, object] = {}
@@ -482,9 +559,13 @@ def _build_semaphores(cfg: Config, plan: PoolPlan) -> dict[str, object]:
                 f"in config.yaml's concurrency_groups"
             )
         semaphores[name] = manager.Semaphore(int(limit))
+    shared: dict[str, object] = {"semaphores": semaphores}
+    if tokens:
+        shared["tokens"] = manager.dict()
+        shared["token_lock"] = manager.Lock()
     # Keep the manager alive by attaching it to the dict under a reserved key.
-    semaphores["__manager__"] = manager
-    return semaphores
+    shared["__manager__"] = manager
+    return shared
 
 
 def run_plan(
@@ -505,7 +586,16 @@ def run_plan(
     dispatched — used to stream progress so long-running attempts don't look
     hung.
     """
-    semaphores = _build_semaphores(cfg, plan)
+    oauth = {
+        name for task in plan.tasks for name in oauth_servers(cfg, task.mcp_servers)
+    }
+    shared = _build_shared(cfg, plan, tokens=bool(oauth) and plan.n_parallel > 1)
+    if "tokens" in shared:
+        # Installed before the staging below mints the run's first token, so
+        # that the workers start from that one instead of each minting again.
+        use_token_cache(shared["tokens"], shared["token_lock"])
+    mcp_staging = _stage_mcp(cfg, plan, run_tmp_root, provider_name)
+    _warn_short_lived_tokens(cfg, plan, oauth)
 
     def _announce(task: Task, attempt_n: int) -> None:
         if on_attempt_start is not None:
@@ -531,7 +621,7 @@ def run_plan(
 
     ctx = mp.get_context("spawn")
     # Filter out the __manager__ sentinel before passing into workers.
-    worker_semaphores = {k: v for k, v in semaphores.items() if k != "__manager__"}
+    worker_shared = {k: v for k, v in shared.items() if k != "__manager__"}
 
     # Warm-then-fan-out dispatch when serial_within_task is on. Only the
     # first attempt of each task needs to run alone: it pays full input
@@ -565,7 +655,7 @@ def run_plan(
         max_workers=plan.n_parallel,
         mp_context=ctx,
         initializer=_init_worker,
-        initargs=(worker_semaphores,),
+        initargs=(worker_shared, mcp_staging),
     ) as pool:
         for batch in batches:
             if not batch:
