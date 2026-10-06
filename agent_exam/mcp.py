@@ -554,10 +554,16 @@ def connection_check(
         if statuses.get(name) != "connected"
     )
     if problems:
+        hint = f"did not connect: {', '.join(problems)}"
+        if "pending" in statuses.values():
+            hint += (
+                "; the agent started before they finished connecting, which"
+                " Claude Code does in -p mode before 2.1.221, so upgrade it"
+            )
         return CheckResult(
             name="mcp servers connected",
             status="FAIL",
-            hint=f"did not connect: {', '.join(problems)}",
+            hint=hint,
         )
     if not statuses:
         return CheckResult(
