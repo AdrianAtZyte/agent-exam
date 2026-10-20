@@ -12,3 +12,6 @@ uv.lock
 dist/
 docs/_build/
 .env
+.coverage
+coverage.xml
+*.junit.xml
