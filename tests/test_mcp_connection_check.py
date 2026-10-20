@@ -256,6 +256,14 @@ def test_check_fails_on_a_server_that_did_not_connect():
     assert "files" not in result.hint
 
 
+def test_check_fails_on_a_server_still_connecting():
+    result = connection_check({"files": "pending"})
+
+    assert result.status == "FAIL"
+    assert "files (pending)" in result.hint
+    assert "2.1.221" in result.hint
+
+
 def test_check_passes_when_every_server_connected():
     assert connection_check({"files": "connected"}).status == "OK"
 
