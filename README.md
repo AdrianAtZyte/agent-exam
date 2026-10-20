@@ -1,6 +1,7 @@
 # agent-exam
 
 [![docs](https://readthedocs.org/projects/agent-exam/badge/?version=latest)](https://agent-exam.readthedocs.io)
+[![codecov](https://codecov.io/gh/zytedata/agent-exam/branch/main/graph/badge.svg)](https://codecov.io/gh/zytedata/agent-exam)
 
 Eval framework for agent skills. Point it at a repo of skills and a suite of
 YAML tasks, and it runs them against a real agent CLI, grades the resulting

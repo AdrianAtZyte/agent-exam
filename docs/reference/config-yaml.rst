@@ -344,12 +344,18 @@ header it can carry, and a server needing any other has to be scoped away from
 it with ``providers:``.
 
 A server whose token comes from OAuth obtains it via ``oauth`` instead of a
-pre-obtained token in ``env``/``headers``. The access token is obtained once
-per run, before the server is resolved, and sent as the bearer token of the
+pre-obtained token in ``env``/``headers``. Every attempt starts on an access
+token with most of its life ahead of it, sent as the bearer token of the
 server's ``Authorization`` header. A server that needs it elsewhere, such as
 a stdio server's ``env``, names an ``env_var`` under ``oauth`` instead, and
 its own ``env``/``headers`` reference it with ``${VAR}`` like a token
 obtained any other way. ``scope`` is optional.
+
+The harness keeps the token it was handed for as long as the attempt lasts,
+so an authorization server issuing short-lived ones puts a ceiling on how
+long a single attempt can take: past it the server rejects every tool call,
+and harnesses report that as an ``Authorization`` header the configuration
+got wrong. A run whose task budget exceeds the lifetime warns as it starts.
 
 A remote server protected the way the MCP specification describes, with a
 login in the browser, is logged in to once with ``agent-exam mcp login

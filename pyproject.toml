@@ -51,6 +51,14 @@ agent-exam = "agent_exam.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["agent_exam"]
 
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"

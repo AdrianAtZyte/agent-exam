@@ -12,6 +12,16 @@ _HERE = Path(__file__).parent
 sys.path.insert(0, str(_HERE))
 
 
+@pytest.fixture(autouse=True)
+def _fresh_oauth_tokens(monkeypatch):
+    """Give each test its own MCP OAuth token cache.
+
+    The cache is module state a whole run shares, so a token one test mints
+    would otherwise spare the next one the grant it is there to exercise.
+    """
+    monkeypatch.setattr("agent_exam.mcp._TOKENS", {})
+
+
 def git_init(root: Path, gitignore: str = "", commit: bool = False) -> None:
     """Make *root* a git work tree.
 

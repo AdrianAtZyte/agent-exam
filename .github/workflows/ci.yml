@@ -44,6 +44,13 @@ jobs:
           tox.ini
     - name: tox
       run: uvx --with tox-uv tox -e ${{ matrix.toxenv || 'py' }}
+    - name: Upload coverage report
+      uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4 # v7.1.0
+    - name: Upload test results
+      if: ${{ !cancelled() }}
+      uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4 # v7.1.0
+      with:
+        report_type: test_results
 
   check:
     runs-on: ubuntu-latest

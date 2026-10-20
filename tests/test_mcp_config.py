@@ -10,6 +10,7 @@ import http.client
 import json
 import os
 import threading
+import time
 import urllib.error
 import urllib.parse
 from textwrap import dedent
@@ -19,7 +20,7 @@ import pytest
 
 from agent_exam.config import McpHttpServer, McpStdioServer, load_config
 from agent_exam.errors import UsageError
-from agent_exam.mcp import preflight, resolve_servers
+from agent_exam.mcp import preflight, resolve_servers, token_lifetimes
 from agent_exam.oauth import login
 from agent_exam.providers import get_provider
 from agent_exam.tasks import load_task
@@ -477,6 +478,65 @@ def test_resolve_fetches_an_oauth_token_and_expands_it(tmp_path, monkeypatch):
     assert resolved["reports"]["headers"] == {"Authorization": "Bearer tok123"}
     assert "oauth" not in resolved["reports"]
     assert os.environ["REPORTS_TOKEN"] == "tok123"
+
+
+def _counting_urlopen(payload: dict, calls: list):
+    def urlopen(request, timeout=None):
+        calls.append(request.full_url)
+        return _FakeTokenResponse({**payload, "access_token": f"tok{len(calls)}"})
+
+    return urlopen
+
+
+def test_resolve_records_how_long_the_oauth_token_lives(tmp_path, monkeypatch):
+    monkeypatch.setenv("REPORTS_CLIENT_ID", "id")
+    monkeypatch.setenv("REPORTS_CLIENT_SECRET", "secret")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        _fake_urlopen({"access_token": "tok123", "expires_in": 180}),
+    )
+    cfg = load_config(_project(tmp_path, _OAUTH_CONFIG))
+
+    resolve_servers(cfg)
+
+    assert token_lifetimes() == {"reports": 180}
+
+
+def test_resolving_again_reuses_a_token_with_life_left(tmp_path, monkeypatch):
+    """Every attempt resolves the servers it attaches, and a rotating grant
+    revokes the whole family when two of them run it at once."""
+    monkeypatch.setenv("REPORTS_CLIENT_ID", "id")
+    monkeypatch.setenv("REPORTS_CLIENT_SECRET", "secret")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "urllib.request.urlopen", _counting_urlopen({"expires_in": 180}, calls)
+    )
+    cfg = load_config(_project(tmp_path, _OAUTH_CONFIG))
+
+    first = resolve_servers(cfg)["reports"]["headers"]
+    again = resolve_servers(cfg)["reports"]["headers"]
+
+    assert first == again == {"Authorization": "Bearer tok1"}
+    assert len(calls) == 1
+
+
+def test_a_spent_token_is_minted_again(tmp_path, monkeypatch):
+    monkeypatch.setenv("REPORTS_CLIENT_ID", "id")
+    monkeypatch.setenv("REPORTS_CLIENT_SECRET", "secret")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "urllib.request.urlopen", _counting_urlopen({"expires_in": 180}, calls)
+    )
+    cfg = load_config(_project(tmp_path, _OAUTH_CONFIG))
+
+    resolve_servers(cfg)
+    # Past the point the run renews at, short of the token's own expiry.
+    later = time.time() + 150
+    monkeypatch.setattr("agent_exam.mcp.time.time", lambda: later)
+    resolved = resolve_servers(cfg)
+
+    assert resolved["reports"]["headers"] == {"Authorization": "Bearer tok2"}
+    assert len(calls) == 2
 
 
 def test_resolve_reports_a_missing_oauth_variable(tmp_path, monkeypatch):
