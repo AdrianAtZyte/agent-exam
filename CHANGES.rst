@@ -7,6 +7,9 @@ Changes
 
 -   Added MCP support.
 
+    With Claude Code, use 2.1.221 or later: earlier versions start the agent
+    before the MCP servers finish connecting.
+
 -   Added ``judge.provider`` and ``judge.model``, to judge a run with a
     different harness and model than the one under evaluation.
 
@@ -15,6 +18,11 @@ Changes
 -   Fixed runs on Windows, where the agent subprocess survived a timeout or a
     cancellation, and where a long prompt overran the command-line length
     limit.
+
+-   Judges now see a marker, such as ``[image: image/png, 1024 bytes]``, for
+    each image or other non-text block in a Claude Code tool result. Those
+    blocks were dropped when the result also had text, and dumped as raw JSON
+    otherwise.
 
 -   A crash while scoring an attempt no longer takes down the whole run.
 
